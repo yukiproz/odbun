@@ -2,7 +2,7 @@
   "name": "open-design",
   "version": "0.25.1",
   "private": true,
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "bun@1.4.4",
   "type": "module",
   "description": "Local-first design product: detects your installed code-agent CLI, runs design skills + design systems, streams artifacts into a sandboxed preview.",
   "license": "Apache-2.0",
@@ -69,5 +69,37 @@
       "protobufjs",
       "sharp"
     ]
-  }
+  },
+  "overrides": {
+    "brace-expansion": "5.0.6",
+    "devalue": "5.8.1",
+    "fast-uri": "3.1.2",
+    "hono": "4.12.19",
+    "ip-address": "10.2.0",
+    "postcss": "8.5.15",
+    "protobufjs": "8.4.0",
+    "qs": "6.15.2",
+    "tar": "7.5.22",
+    "tmp": "0.2.7",
+    "undici@^6": "6.28.0",
+    "undici@^7": "7.29.0",
+    "yaml": "2.9.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*",
+    "shells/*",
+    "e2e"
+  ],
+  "trustedDependencies": [
+    "better-sqlite3",
+    "core-js",
+    "electron",
+    "electron-winstaller",
+    "esbuild",
+    "onnxruntime-node",
+    "protobufjs",
+    "sharp"
+  ]
 }
