@@ -238,8 +238,10 @@ export function validateUserProviderBaseUrl(
  * 3xx hop into private space.
  *
  * Returns the DNS-resolved addresses that passed validation on the `ok` branch
- * so callers (e.g. {@link assertAndFetchExternalAsset}) can pin the actual
- * connection to those addresses and prevent DNS rebinding (issue #5478).
+ * so callers (e.g. {@link assertAndFetchExternalAsset}) can refuse fetches
+ * whose addresses were not validated (issue #5478). Since R4 (native fetch)
+ * the connection is not pinned to those addresses at connect time; see the
+ * residual-window note on {@link assertAndFetchExternalAsset}.
  */
 export async function assertExternalAssetUrl(
   rawUrl: string,

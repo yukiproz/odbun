@@ -706,8 +706,9 @@ export async function executeGenerateImage(
 
   let bytes: Buffer;
   try {
-    // Use assertAndFetchExternalAsset (validate + pinned-DNS fetch) so a
-    // malicious gateway can't DNS-rebind into loopback/metadata space.
+    // Use assertAndFetchExternalAsset (fail-closed pre-validation +
+    // forced redirect:'error'; no connect-time DNS pin since R4 — see
+    // that function's doc for the residual rebinding window).
     const imgResp = await assertAndFetchExternalAsset(imageUrl, withToolRequestInit(ctx, {}));
     if (!imgResp.ok) {
       return { ok: false, error: `image download ${imgResp.status}` };
@@ -933,8 +934,9 @@ export async function executeGenerateVideo(
   }
 
   // Step 3: download the mp4 bytes and persist into the project folder.
-  // Use assertAndFetchExternalAsset (validate + pinned-DNS fetch) so a
-  // malicious gateway can't DNS-rebind into loopback / metadata space.
+  // Use assertAndFetchExternalAsset (fail-closed pre-validation +
+  // forced redirect:'error'; no connect-time DNS pin since R4 — see
+  // that function's doc for the residual rebinding window).
 
   let bytes: Buffer;
   try {
@@ -1322,7 +1324,8 @@ async function resolveAIHubMixReferenceImage(
   const raw = imageUrl.trim();
   if (/^https?:\/\//i.test(raw)) {
     try {
-      // assertAndFetchExternalAsset validates + pins DNS to prevent rebind.
+      // assertAndFetchExternalAsset validates fail-closed before fetching
+      // (no connect-time DNS pin since R4).
       const resp = await assertAndFetchExternalAsset(raw, withToolRequestInit(ctx, {}));
       if (!resp.ok) return null;
       const buf = Buffer.from(await resp.arrayBuffer());
