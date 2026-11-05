@@ -11,7 +11,7 @@
 // matches what the daemon does in production.
 
 import type http from 'node:http';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, promises as fsp, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

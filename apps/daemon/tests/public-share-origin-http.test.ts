@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import express from 'express';
 import { createServer } from 'node:http';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';

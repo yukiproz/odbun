@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import express from 'express';
 import { buildWorkspacePermissions, buildWorkspaceSeatSummary, type WorkspaceCollabContext } from '@open-design/contracts';
 import { createCollabRuntime } from '../src/collab/runtime.js';

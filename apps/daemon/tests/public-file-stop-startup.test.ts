@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

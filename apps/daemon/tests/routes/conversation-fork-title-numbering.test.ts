@@ -5,7 +5,7 @@
  * 就必须先看一眼这个项目里已经有哪些标题 —— 那份名单只有 daemon 手上有。放在 web
  * 端算等于让每个客户端各拿一份可能过期的快照去算同一个号;放在 daemon 里,
  * 「读名单 → 算号 → 落库」在一个 Express handler 里**中间没有 await**,
- * better-sqlite3 又是同步的,所以同进程内它就是原子的:同一秒点两下 fork
+ * bun:sqlite 又是同步的,所以同进程内它就是原子的:同一秒点两下 fork
  * 拿到的是 (1) 和 (2),不会双双撞成 (1)。
  *
  * 顺带白拿了 CLI 那条路(`od conversation new --seed-from` / `od chat new --fork-after`)——

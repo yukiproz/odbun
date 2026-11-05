@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import Database from 'better-sqlite3';
+import Database from '../../src/bun/db.js';
 import {
   deleteMediaTask,
   getMediaTask,

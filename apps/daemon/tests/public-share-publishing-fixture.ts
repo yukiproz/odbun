@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../src/bun/db.js';
 import { randomUUID } from 'node:crypto';
 import { createShareAliasReservations } from '../src/collab/share-alias-reservation.js';
 import { createShareBindingOutbox } from '../src/collab/share-binding-outbox.js';

@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { expect, it } from 'vitest';
 import { buildWorkspacePermissions, buildWorkspaceSeatSummary, type WorkspaceCollabContext } from '@open-design/contracts';
 import { commentRelayScope, personalCommentRelayFilePaths } from '../src/collab/comment-relay-scope.js';

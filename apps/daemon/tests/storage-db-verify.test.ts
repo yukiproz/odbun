@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { verifySqliteIntegrity } from '../src/storage/db-inspect.js';
 
 let tmp: string;

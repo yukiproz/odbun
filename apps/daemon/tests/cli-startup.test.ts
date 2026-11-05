@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promisify } from 'node:util';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);

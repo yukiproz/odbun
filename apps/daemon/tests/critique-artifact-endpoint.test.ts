@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import express from 'express';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import {
   insertCritiqueRun,
   migrateCritique,

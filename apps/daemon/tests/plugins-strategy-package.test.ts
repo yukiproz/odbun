@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { chmod, cp, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import type { InstalledPluginRecord } from '@open-design/contracts';
 import { migratePlugins } from '../src/plugins/persistence.js';
 import { resolvePluginFolder } from '../src/plugins/registry.js';

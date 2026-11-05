@@ -3374,7 +3374,7 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
 });
 
 // listMessages reads from a `prepare(...).all(cid)` call against
-// better-sqlite3. To avoid spinning up SQLite in unit tests we provide a
+// the bun db adapter. To avoid spinning up SQLite in unit tests we provide a
 // stub that satisfies the same shape used in `apps/daemon/src/db.ts`.
 function makeDbWithListMessages(messagesByConvo: Record<string, FakeMessage[]>) {
   // Mirror db.ts: SELECT returns *Json columns and listMessages runs them

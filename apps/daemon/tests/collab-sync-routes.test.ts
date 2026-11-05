@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as deployPlanner from '../src/deploy.js';
 import express from 'express';
 import { publicFileResourceIdFor } from '../src/collab/public-file-resource-id.js';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { randomUUID } from 'node:crypto';
 import { migrateCommentRelayOutbox } from '../src/collab/comment-relay-outbox.js';
 import { createShareAliasReservations } from '../src/collab/share-alias-reservation.js';

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, symlink, writeFile, mkdir } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 
-import Database from 'better-sqlite3';
+import Database from '../../../src/bun/db.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { SkillInfo } from '../../../src/skills.js';

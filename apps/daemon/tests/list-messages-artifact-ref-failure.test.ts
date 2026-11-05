@@ -22,7 +22,7 @@ import { listMessages } from '../src/db.js';
 type Prepared = { all: (...args: unknown[]) => unknown[]; get: (...args: unknown[]) => unknown };
 
 /**
- * The minimum `better-sqlite3` surface `listMessages` touches, with one query
+ * The minimum Database (bun db adapter) surface `listMessages` touches, with one query
  * class made to fail. `failOn` is matched against the SQL text.
  */
 function dbWithFailingQuery(failOn: RegExp, rows: Array<Record<string, unknown>>) {

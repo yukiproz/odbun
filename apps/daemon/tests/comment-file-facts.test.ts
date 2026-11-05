@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import type { CollabCloudComment, CommentFileFact, CommentFileState } from '@open-design/contracts';
 import { commentFilesAtReceipt, normalizeCurrentFileComment, parseCommentFileState } from '../src/collab/comment-file-facts.js';
 import { commitCommentFileFacts } from '../src/collab/comment-file-authority.js';

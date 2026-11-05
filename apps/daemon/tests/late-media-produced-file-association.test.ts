@@ -25,7 +25,7 @@
  */
 
 import type http from 'node:http';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';

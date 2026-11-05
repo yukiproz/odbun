@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import express from 'express';
 import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';

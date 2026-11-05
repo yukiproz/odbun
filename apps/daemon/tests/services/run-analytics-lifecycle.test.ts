@@ -6,7 +6,7 @@
 // land as `cancelled`, not as a missing row, or the cancellation rate is
 // computed against a smaller denominator than the truth.
 
-import Database from 'better-sqlite3';
+import Database from '../../src/bun/db.js';
 import { buildWorkspacePermissions, buildWorkspaceSeatSummary, type WorkspaceCollabContext } from '@open-design/contracts';
 import { describe, expect, it, vi } from 'vitest';
 

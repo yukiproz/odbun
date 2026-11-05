@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { buildWorkspacePermissions, buildWorkspaceSeatSummary, type PreviewComment, type WorkspaceCollabContext } from '@open-design/contracts';

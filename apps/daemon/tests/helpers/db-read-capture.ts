@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../../src/bun/db.js';
 
 /**
  * Every row a database read hands to JS while `run` executes, serialized at

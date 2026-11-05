@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
