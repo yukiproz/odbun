@@ -62,6 +62,43 @@ Architecture and rationale: `port/DESIGN.md`. Bun tech ledger:
   build; development and CI live in this repo on the VM + GitHub
   Actions.
 
+## Update policy — upstream is a vendor base, not a master (Hadi, 2026-11-05)
+
+odbun does **not** chase every upstream release. Staying on the
+v0.27.0 base for a long time is acceptable and expected. Three
+escalating responses, cheapest first:
+
+1. **Stay** — default. Nothing happens per upstream release.
+2. **Cherry-pick** — a single upstream fix we actually need (security,
+   or a bug we hit) is cherry-picked onto our `main` without a full
+   version merge.
+3. **Full merge** — rare and deliberate, only when upstream brings a
+   security fix set, a feature we want, or a fix that retires port
+   items (#9121, #8927). Done on an `update/*` branch, CI must be
+   green, and `data-od-bun/` is snapshotted first because schema
+   migrations may ride along.
+
+odbun carries its **own version line**; the base version is recorded
+alongside it (e.g. "odbun 0.1.0 · base open-design v0.27.0"), never
+implied to track upstream numbering.
+
+## Extensions — custom providers & extra mechanisms (planned, Hadi, 2026-11-05)
+
+Custom providers and other non-default mechanisms are expected in
+this port's future. House rule so they stay cheap to keep:
+
+- **New files + one registration point.** A custom provider is a new
+  runtime def following upstream's `RuntimeAgentDef` contract,
+  registered at the single place upstream registers defs — not edits
+  scattered through upstream code. Same shape for other mechanisms:
+  own module under `port/` (or an `odbun`-namespaced package), wired
+  in at one hook point.
+- **Namespaced config** (`odbun.*` keys / `ODBUN_*` env), so an
+  upstream config change never collides with ours.
+- **Every divergence is registered** in `port/port-items.json` with
+  its reason. The explicit delta list is what makes infrequent
+  updates safe: we always know exactly what we own.
+
 ## Out of scope (by decision)
 
 Desktop/Electron, packaged builds, upstream's own CI topology, and any
