@@ -1,4 +1,4 @@
-import type { Server } from 'node:http';
+import { Agent as HttpAgent, request as httpRequest, type Server } from 'node:http';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
@@ -7,7 +7,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Agent, fetch as undiciFetch } from 'undici';
 import * as contracts from '@open-design/contracts';
 import type {
   ProjectScenarioTaskProfile,
@@ -61,7 +60,11 @@ type StartedServer = {
 };
 
 // Each fixture owns its HTTP transport; daemon-internal fetch remains untouched.
-const fixtureHttpClients = new Map<string, { owner: StartedServer; dispatcher: Agent }>();
+// The transport is node:http with a per-origin keep-alive Agent: node:http
+// behaves identically in Node and Bun, while the previous undici client did
+// not — Bun resolves 'undici' to its bundled shim, whose Agent exposes no
+// destroy()/close()/dispatch(), so teardown threw under the Bun runtime.
+const fixtureHttpClients = new Map<string, { owner: StartedServer; agent: HttpAgent }>();
 const fixtureShutdowns = new WeakMap<StartedServer, Promise<void>>();
 const fixtureAgentBinEnvKeys = [...new Set([
   ...AGENT_DEFS.map(def => agentBinEnvKey(def.id)).filter((key): key is string => key !== null),
@@ -70,11 +73,71 @@ const fixtureAgentBinEnvKeys = [...new Set([
 let fixtureDetectionIsolation: Promise<{ root: string; home: string; bin: string }> | null = null;
 let previousDetectionEnv: Record<string, string | undefined> = {};
 
-function fetch(input: Parameters<typeof undiciFetch>[0], init?: Parameters<typeof undiciFetch>[1]) {
-  const origin = new URL(typeof input === 'string' ? input : 'url' in input ? input.url : input.href).origin;
-  const client = fixtureHttpClients.get(origin);
-  if (!client) throw new Error(`No fixture HTTP client owns ${origin}`);
-  return undiciFetch(input, { ...init, dispatcher: client.dispatcher });
+type FixtureFetchInit = {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+};
+
+function fetch(input: string | URL | { url: string }, init: FixtureFetchInit = {}): Promise<Response> {
+  const url = new URL(typeof input === 'string' ? input : 'url' in input ? input.url : input.href);
+  const client = fixtureHttpClients.get(url.origin);
+  if (!client) throw new Error(`No fixture HTTP client owns ${url.origin}`);
+  return fixtureRequest(url, client.agent, init, 0);
+}
+
+// Fetch-shaped request over the fixture's own node:http Agent. Redirects are
+// followed like fetch (303 always degrades to a bodyless GET); the response
+// is a real Response, so callers keep using .status/.ok/.json()/.text().
+function fixtureRequest(url: URL, agent: HttpAgent, init: FixtureFetchInit, redirectCount: number): Promise<Response> {
+  return new Promise<Response>((resolve, reject) => {
+    const headers: Record<string, string> = { ...(init.headers ?? {}) };
+    if (init.body !== undefined && !Object.keys(headers).some((name) => name.toLowerCase() === 'content-length')) {
+      headers['content-length'] = String(Buffer.byteLength(init.body));
+    }
+    const req = httpRequest(url, {
+      agent,
+      method: init.method ?? 'GET',
+      headers,
+    }, (res) => {
+      const status = res.statusCode ?? 0;
+      const location = res.headers.location;
+      if (location && redirectCount < 20 && [301, 302, 303, 307, 308].includes(status)) {
+        res.resume();
+        const nextInit: FixtureFetchInit = status === 303
+          ? { method: 'GET', ...(init.headers ? { headers: init.headers } : {}) }
+          : init;
+        resolve(fixtureRequest(new URL(location, url), agent, nextInit, redirectCount + 1));
+        return;
+      }
+      const responseHeaders = new Headers();
+      for (const [name, value] of Object.entries(res.headers)) {
+        if (value === undefined) continue;
+        if (Array.isArray(value)) {
+          for (const entry of value) responseHeaders.append(name, entry);
+        } else {
+          responseHeaders.set(name, value);
+        }
+      }
+      // 204/304 carry no body; the Response constructor rejects a body there.
+      const body = status === 204 || status === 304
+        ? null
+        : new ReadableStream<Uint8Array>({
+          start(controller) {
+            res.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+            res.on('end', () => controller.close());
+            res.on('error', (err) => controller.error(err));
+          },
+          cancel() {
+            res.destroy();
+          },
+        });
+      resolve(new Response(body, { status, statusText: res.statusMessage ?? '', headers: responseHeaders }));
+    });
+    req.on('error', reject);
+    if (init.body !== undefined) req.write(init.body);
+    req.end();
+  });
 }
 
 type RunStatus = {
@@ -713,8 +776,11 @@ process.stdin.on('end', () => {
         stdin: string;
         cwd: string;
         config: {
-          permission?: { external_directory?: Record<string, string>; edit?: Record<string, string> };
-          mcp?: Record<string, { command: string[] }>;
+          // OpenCode v2 config shape (port P3/P4): MCP servers nest under
+          // mcp.servers with `disabled`, and permission grants are an
+          // ordered `permissions` ruleset, not the v1 `permission` record.
+          permissions?: Array<{ action: string; resource: string; effect: string }>;
+          mcp?: { servers?: Record<string, { command?: string[]; disabled?: boolean }> };
           provider?: Record<string, { options: { baseURL: string } }>;
         };
       };
@@ -722,30 +788,40 @@ process.stdin.on('end', () => {
       if (active) expect(invocation.stdin).toContain('skill_name="discovery"');
       // Withholding one resource must never discard the project's existing
       // access, enabled MCP servers, or the run-scoped BYOK provider.
-      expect(invocation.config.mcp?.fixture?.command).toEqual([process.execPath, '--version']);
+      expect(invocation.config.mcp?.servers?.fixture?.command).toEqual([process.execPath, '--version']);
+      expect(invocation.config.mcp?.servers?.fixture?.disabled).toBe(false);
       if (agentId === 'byok-opencode') {
         expect(invocation.config.provider?.['open-design-byok']?.options.baseURL).toBe('http://127.0.0.1:1/v1');
       }
-      const rules = invocation.config.permission?.external_directory ?? {};
-      expect(rules[invocation.cwd]).toBe('allow');
+      // v2 ruleset semantics: the last rule matching an (action, resource)
+      // pair decides its effect; no matching rule means no grant, exactly
+      // what the v1 record lookups below used to assert per key.
+      const permissionEffect = (action: string, resource: string): string | undefined => {
+        let effect: string | undefined;
+        for (const rule of invocation.config.permissions ?? []) {
+          if (rule.action === action && rule.resource === resource) effect = rule.effect;
+        }
+        return effect;
+      };
+      expect(permissionEffect('external_directory', invocation.cwd)).toBe('allow');
       const bundledRoot = path.join(REPO_ROOT, 'plugins/_official');
       const root = path.join(bundledRoot, 'scenarios/od-next-strategy/assets/task-profiles');
       const granted = availability === 'available' || availability === 'git-probe-failed';
       for (const entry of [root, path.join(root, '*'), path.join(root, '**')]) {
         if (granted) {
-          expect(rules[entry]).toBe('allow');
-          expect(invocation.config.permission?.edit?.[entry]).toBe('deny');
+          expect(permissionEffect('external_directory', entry)).toBe('allow');
+          expect(permissionEffect('edit', entry)).toBe('deny');
         } else {
-          expect(rules[entry]).toBeUndefined();
-          expect(invocation.config.permission?.edit?.[entry]).toBeUndefined();
+          expect(permissionEffect('external_directory', entry)).toBeUndefined();
+          expect(permissionEffect('edit', entry)).toBeUndefined();
         }
       }
       if (granted) {
         // Fixture projects are outside Git; the CLI checks file edits against
         // the volume root while preserving writes inside its own project.
         const relativePattern = path.join(path.relative(path.parse(root).root, root), '**');
-        expect(invocation.config.permission?.edit?.[relativePattern]).toBe('deny');
-        expect(invocation.config.permission?.edit?.[invocation.cwd]).toBeUndefined();
+        expect(permissionEffect('edit', relativePattern)).toBe('deny');
+        expect(permissionEffect('edit', invocation.cwd)).toBeUndefined();
       }
       if (availability === 'unavailable') {
         expect(warning).toHaveBeenCalledWith(expect.stringContaining('Bundled strategy package identity drift'));
@@ -754,7 +830,7 @@ process.stdin.on('end', () => {
       } else if (availability === 'git-probe-failed') {
         expect(warning).toHaveBeenCalledWith(expect.stringContaining('git probe failed'));
       }
-      expect(rules[path.join(bundledRoot, '*')]).toBeUndefined();
+      expect(permissionEffect('external_directory', path.join(bundledRoot, '*'))).toBeUndefined();
     } finally {
       const restored = await fetch(`${started.url}/api/mcp/servers`, {
         method: 'PUT', headers: { 'content-type': 'application/json' },
@@ -3412,7 +3488,7 @@ async function startDaemon(
     port: 0,
     returnServer: true,
   }) as StartedServer;
-  fixtureHttpClients.set(new URL(started.url).origin, { owner: started, dispatcher: new Agent() });
+  fixtureHttpClients.set(new URL(started.url).origin, { owner: started, agent: new HttpAgent({ keepAlive: true }) });
   return started;
 }
 
@@ -3433,7 +3509,7 @@ async function stopOwnedServer(server: StartedServer): Promise<void> {
     fixtureHttpClients.delete(origin);
     // Runs have settled first. Release only this fixture's keep-alive clients,
     // including a connection whose idle transition races server.close().
-    await client.dispatcher.destroy();
+    client.agent.destroy();
   }
   if (server.server.listening) {
     await new Promise<void>((resolve) => server.server.close(() => resolve()));
