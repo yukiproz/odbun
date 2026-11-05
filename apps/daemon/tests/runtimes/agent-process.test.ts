@@ -30,6 +30,7 @@ import {
   type AgentProcessRecord,
 } from '../../src/runtimes/agent-process.js';
 import { interruptDurableRunAfterDaemonRestart } from '../../src/runtimes/run-restart-recovery.js';
+import { isBun } from '../helpers/runtime.js';
 import type { AgentProcessFixtureConfig } from './agent-process-daemon.fixture.js';
 import { FAKE_AGENT_SOURCE, fixturePrompt, sha256 } from './agent-process-fixtures.js';
 
@@ -196,7 +197,11 @@ async function spawnAgentUnderFixtureDaemon(options: {
 }
 
 describe.skipIf(onWindows)('an agent receives the complete prompt or nothing', () => {
-  it('delivers the whole prompt to an agent that starts reading 3s after its daemon aborted', async () => {
+  // Bun-only code path: the fixture daemon runs under the harness
+  // runtime and drives the real spawnAgentProcess, which is backed by
+  // Bun.spawn; under the Node harness the agent never starts. It runs
+  // on the Bun track. See port/TEST-SUITES.md §4.2 / §7.5.
+  it.skipIf(!isBun)('delivers the whole prompt to an agent that starts reading 3s after its daemon aborted', async () => {
     const root = tempRoot();
     const promptBytes = 288 * 1024;
     const resultPath = path.join(root, 'stdin-result.json');
@@ -237,7 +242,12 @@ describe.skipIf(onWindows)('an agent receives the complete prompt or nothing', (
 });
 
 describe.skipIf(onWindows)('every running agent is on record for the next daemon start', () => {
-  it('kills an agent it cannot record and fails the spawn', async () => {
+  // Bun-only code path: spawnAgentProcess is backed by Bun.spawn
+  // in-process; under the Node harness the failed spawn is converted
+  // to a no-PID child, so the record-or-kill path never engages and
+  // the spawn wrongly succeeds. It runs on the Bun track.
+  // See port/TEST-SUITES.md §4.2 / §7.5.
+  it.skipIf(!isBun)('kills an agent it cannot record and fails the spawn', async () => {
     const root = tempRoot();
     const agentScript = writeFakeAgent(root);
     // The run directory cannot exist: its parent is a regular file.
@@ -268,7 +278,11 @@ describe.skipIf(onWindows)('every running agent is on record for the next daemon
 });
 
 describe.skipIf(onWindows)('startup reconciliation reaps leftovers', () => {
-  it('terminates a recorded agent that outlived its daemon, even once its run was reconciled as failed', async () => {
+  // Bun-only code path: the fixture daemon runs under the harness
+  // runtime and drives the real spawnAgentProcess, which is backed by
+  // Bun.spawn; under the Node harness the agent never starts. It runs
+  // on the Bun track. See port/TEST-SUITES.md §4.2 / §7.5.
+  it.skipIf(!isBun)('terminates a recorded agent that outlived its daemon, even once its run was reconciled as failed', async () => {
     const root = tempRoot();
     const { daemon, marker, runDir } = await spawnAgentUnderFixtureDaemon({
       root,
@@ -336,7 +350,11 @@ describe.skipIf(onWindows)('startup reconciliation reaps leftovers', () => {
     expect(fs.existsSync(agentProcessRecordPath(runDir, lookalikePid))).toBe(false);
   }, 20_000);
 
-  it('keeps the agents of a daemon that is still running on the same data root', async () => {
+  // Bun-only code path: the fixture daemon runs under the harness
+  // runtime and drives the real spawnAgentProcess, which is backed by
+  // Bun.spawn; under the Node harness the agent never starts. It runs
+  // on the Bun track. See port/TEST-SUITES.md §4.2 / §7.5.
+  it.skipIf(!isBun)('keeps the agents of a daemon that is still running on the same data root', async () => {
     const root = tempRoot();
     const { marker, runDir } = await spawnAgentUnderFixtureDaemon({
       root,
