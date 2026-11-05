@@ -5,7 +5,6 @@ import { execAgentFile } from './invocation.js';
 import type { RuntimeAgentDef } from './types.js';
 
 export const OPENCODE_SKIP_PERMISSIONS_FLAG = '--dangerously-skip-permissions';
-export const OPENCODE_WORKSPACE_DIR_FLAG = '--dir';
 
 export const OPENCODE_PERMISSION_CAPABILITY = {
   helpArgs: ['run', '--help'],
@@ -90,7 +89,7 @@ async function nearestGitAncestor(from: string): Promise<string | null> {
 }
 
 /**
- * Pin OpenCode's workspace to the resolved project directory.
+ * Pin OpenCode's workspace to the resolved project directory (v2 form).
  *
  * OpenCode does not treat its process cwd as the project: it walks up to the
  * nearest enclosing git root and adopts THAT as the worktree (verified with
@@ -105,17 +104,23 @@ async function nearestGitAncestor(from: string): Promise<string | null> {
  * `no_artifact`. `permission.external_directory` cannot catch it either — once
  * the repository is the worktree, writing inside it is an in-project write.
  *
- * Sent unconditionally, matching the BYOK OpenCode definition that already
- * carried this workaround. Gating it on the `--help` capability probe would
- * turn a missing flag back into the silent data-loss bug; an OpenCode build
- * without `--dir` should fail loudly at spawn instead.
+ * OpenCode 1.x took the directory as a `--dir` argv flag. OpenCode v2 removed
+ * `--dir` entirely and resolves the workspace as
+ * `options.root ?? process.env.PWD ?? process.cwd()` (maintainer guidance on
+ * upstream #8479). Spawning with a `cwd` option does NOT update the child's
+ * `PWD` environment variable, so an inherited `PWD` pointing at the daemon
+ * root would silently re-adopt the wrong tree. The v2 pin is therefore a pair:
+ * spawn with `cwd` set to the project directory AND assign `env.PWD` to that
+ * same resolved directory. Every OpenCode spawn site must apply this helper to
+ * the child env; there is deliberately no argv form left to fall back to.
  */
-export function appendOpenCodeWorkspaceDir(
-  args: string[],
+export function applyOpenCodeWorkspaceEnv(
+  env: NodeJS.ProcessEnv,
   cwd: string | null | undefined,
-): void {
-  if (typeof cwd !== 'string' || cwd.length === 0) return;
-  args.push(OPENCODE_WORKSPACE_DIR_FLAG, cwd);
+): NodeJS.ProcessEnv {
+  if (typeof cwd !== 'string' || cwd.length === 0) return env;
+  env.PWD = path.resolve(cwd);
+  return env;
 }
 
 /**
