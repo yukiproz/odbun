@@ -16,6 +16,33 @@ describe('API proxy routes', () => {
   let server: http.Server;
   let baseUrl: string;
 
+  // R4 (odbun port): the outgoing provider fetch carries the resolved
+  // system proxy as a native `proxy` URL string on the request init —
+  // the pre-port Undici `dispatcher` object no longer exists. The
+  // dispatcher-era assertions below are re-aimed at that contract.
+  const SYSTEM_PROXY_URL = 'http://system-proxy.internal:8443';
+  type InitWithProxy = FetchInit & { proxy?: string };
+  const proxyOf = (init?: FetchInit) => (init as InitWithProxy | undefined)?.proxy;
+
+  // The tests spy on resolveSystemProxyEnv to make the system proxy
+  // authoritative; a real proxy env in the test process would win the
+  // merge in resolveConnectionTestProxy and leak into the resolved
+  // value, so clear it for the duration of a test and restore after.
+  const PROCESS_PROXY_KEYS = [
+    'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY',
+    'http_proxy', 'https_proxy', 'all_proxy',
+  ] as const;
+  const clearProcessProxyEnv = () => {
+    const saved = PROCESS_PROXY_KEYS.map((key) => [key, process.env[key]] as const);
+    for (const key of PROCESS_PROXY_KEYS) delete process.env[key];
+    return () => {
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    };
+  };
+
   beforeAll(async () => {
     const started = await startServer({ port: 0, returnServer: true }) as {
       url: string;
@@ -144,6 +171,7 @@ describe('API proxy routes', () => {
       response: sseResponse('data: [DONE]\n\n'),
     },
   ])('uses the live proxy dispatcher for $provider proxy requests', async ({ path, body, response }) => {
+    const restoreProxyEnv = clearProcessProxyEnv();
     const proxySpy = vi.spyOn(platform, 'resolveSystemProxyEnv').mockReturnValue({
       HTTPS_PROXY: 'http://system-proxy.internal:8443',
       NODE_USE_ENV_PROXY: '1',
@@ -151,7 +179,7 @@ describe('API proxy routes', () => {
     const fetchMock = vi.fn((input: FetchInput, init?: FetchInit) => {
       const url = String(input);
       if (url.startsWith(baseUrl)) return realFetch(input, init);
-      expect(init?.dispatcher).toBeDefined();
+      expect(proxyOf(init)).toBe(SYSTEM_PROXY_URL);
       return Promise.resolve(response.clone());
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -167,15 +195,17 @@ describe('API proxy routes', () => {
       await res.text();
       expect(
         fetchMock.mock.calls.some(
-          ([input, init]) => !String(input).startsWith(baseUrl) && init?.dispatcher,
+          ([input, init]) => !String(input).startsWith(baseUrl) && proxyOf(init) === SYSTEM_PROXY_URL,
         ),
       ).toBe(true);
     } finally {
       proxySpy.mockRestore();
+      restoreProxyEnv();
     }
   });
 
   it('uses the live proxy dispatcher for ElevenLabs voice discovery', async () => {
+    const restoreProxyEnv = clearProcessProxyEnv();
     const configDir = await mkdtemp(path.join(tmpdir(), 'od-elevenlabs-proxy-route-'));
     process.env.OD_MEDIA_CONFIG_DIR = configDir;
     await mkdir(configDir, { recursive: true });
@@ -196,7 +226,7 @@ describe('API proxy routes', () => {
       const url = String(input);
       if (url.startsWith(baseUrl)) return realFetch(input, init);
       expect(url).toBe('https://elevenlabs-gateway.example.test/v2/voices?page_size=100');
-      expect(init?.dispatcher).toBeDefined();
+      expect(proxyOf(init)).toBe(SYSTEM_PROXY_URL);
       return Promise.resolve(Response.json({
         voices: [{ voice_id: 'voice-1', name: 'Rachel' }],
       }));
@@ -211,16 +241,18 @@ describe('API proxy routes', () => {
       });
       expect(
         fetchMock.mock.calls.some(
-          ([input, init]) => input === 'https://elevenlabs-gateway.example.test/v2/voices?page_size=100' && init?.dispatcher,
+          ([input, init]) => input === 'https://elevenlabs-gateway.example.test/v2/voices?page_size=100' && proxyOf(init) === SYSTEM_PROXY_URL,
         ),
       ).toBe(true);
     } finally {
       proxySpy.mockRestore();
+      restoreProxyEnv();
       await rm(configDir, { recursive: true, force: true });
     }
   });
 
   it('uses the live proxy dispatcher for Tavily research search', async () => {
+    const restoreProxyEnv = clearProcessProxyEnv();
     const configDir = await mkdtemp(path.join(tmpdir(), 'od-tavily-proxy-route-'));
     process.env.OD_MEDIA_CONFIG_DIR = configDir;
     await mkdir(configDir, { recursive: true });
@@ -241,7 +273,7 @@ describe('API proxy routes', () => {
       const url = String(input);
       if (url.startsWith(baseUrl)) return realFetch(input, init);
       expect(url).toBe('https://tavily-gateway.example.test/search');
-      expect(init?.dispatcher).toBeDefined();
+      expect(proxyOf(init)).toBe(SYSTEM_PROXY_URL);
       return Promise.resolve(Response.json({
         answer: 'Proxy-safe summary',
         results: [
@@ -278,11 +310,12 @@ describe('API proxy routes', () => {
       }));
       expect(
         fetchMock.mock.calls.some(
-          ([input, init]) => input === 'https://tavily-gateway.example.test/search' && init?.dispatcher,
+          ([input, init]) => input === 'https://tavily-gateway.example.test/search' && proxyOf(init) === SYSTEM_PROXY_URL,
         ),
       ).toBe(true);
     } finally {
       proxySpy.mockRestore();
+      restoreProxyEnv();
       await rm(configDir, { recursive: true, force: true });
     }
   });
@@ -291,9 +324,28 @@ describe('API proxy routes', () => {
     const originalHttpProxy = process.env.HTTP_PROXY;
     const originalHttpsProxy = process.env.HTTPS_PROXY;
     const originalAllProxy = process.env.ALL_PROXY;
+    const originalHttpProxyLower = process.env.http_proxy;
+    const originalHttpsProxyLower = process.env.https_proxy;
+    const originalAllProxyLower = process.env.all_proxy;
+    const originalNoProxy = process.env.NO_PROXY;
+    const originalNoProxyLower = process.env.no_proxy;
     process.env.HTTP_PROXY = 'not a valid proxy url';
     delete process.env.HTTPS_PROXY;
     delete process.env.ALL_PROXY;
+    // The proxy merge prefers lowercase variants, so a lowercase
+    // proxy left in the process env would shadow the malformed
+    // uppercase value and the daemon would never see it.
+    delete process.env.http_proxy;
+    delete process.env.https_proxy;
+    delete process.env.all_proxy;
+    // Bun's fetch honours the process proxy env for the test's own
+    // loopback hop to the daemon; without a loopback NO_PROXY the
+    // malformed value poisons the client request itself (Node's fetch
+    // never read env proxies). The daemon merges these same loopback
+    // defaults into its own resolution, and the provider target is
+    // not loopback, so the daemon still faces the malformed proxy.
+    process.env.NO_PROXY = '127.0.0.1,localhost';
+    process.env.no_proxy = '127.0.0.1,localhost';
 
     try {
       const res = await realFetch(`${baseUrl}/api/proxy/anthropic/stream`, {
@@ -319,6 +371,16 @@ describe('API proxy routes', () => {
       else process.env.HTTPS_PROXY = originalHttpsProxy;
       if (originalAllProxy === undefined) delete process.env.ALL_PROXY;
       else process.env.ALL_PROXY = originalAllProxy;
+      if (originalHttpProxyLower === undefined) delete process.env.http_proxy;
+      else process.env.http_proxy = originalHttpProxyLower;
+      if (originalHttpsProxyLower === undefined) delete process.env.https_proxy;
+      else process.env.https_proxy = originalHttpsProxyLower;
+      if (originalAllProxyLower === undefined) delete process.env.all_proxy;
+      else process.env.all_proxy = originalAllProxyLower;
+      if (originalNoProxy === undefined) delete process.env.NO_PROXY;
+      else process.env.NO_PROXY = originalNoProxy;
+      if (originalNoProxyLower === undefined) delete process.env.no_proxy;
+      else process.env.no_proxy = originalNoProxyLower;
     }
   });
 

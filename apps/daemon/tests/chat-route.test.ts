@@ -43,6 +43,27 @@ import { workspaceTeamDesignSystemBindingResourceId } from '../src/design-system
 
 const FAKE_VELA_FIXTURE = resolve(process.cwd(), 'tests', 'fixtures', 'fake-vela.mjs');
 
+// odbun port (P3/P4): OPENCODE_CONFIG_CONTENT now carries the OpenCode v2
+// `permissions` ordered ruleset ([{action, resource, effect}], last match
+// wins) instead of the v1 `permission.external_directory` record. Reduce
+// the external_directory rules to the effective resource -> effect map so
+// the assertions below keep checking the same grants.
+function externalDirectoryGrants(config: {
+  permissions?: Array<{ action?: string; resource?: string; effect?: string }>;
+}): Record<string, string> {
+  const grants: Record<string, string> = {};
+  for (const rule of config.permissions ?? []) {
+    if (
+      rule?.action === 'external_directory' &&
+      typeof rule.resource === 'string' &&
+      typeof rule.effect === 'string'
+    ) {
+      grants[rule.resource] = rule.effect;
+    }
+  }
+  return grants;
+}
+
 async function withFakeAgent<T>(
   binName: string,
   script: string,
@@ -673,12 +694,10 @@ process.stdin.on('end', () => {
         const effectiveCwd = (await fsp.readFile(cwdFile, 'utf8')).trim();
         const raw = await fsp.readFile(envFile, 'utf8');
         const parsed = JSON.parse(raw) as {
-          permission?: {
-            external_directory?: Record<string, string>;
-          };
+          permissions?: Array<{ action?: string; resource?: string; effect?: string }>;
         };
 
-        const externalDirectory = parsed.permission?.external_directory ?? {};
+        const externalDirectory = externalDirectoryGrants(parsed);
         const cwdAliases = new Set([effectiveCwd]);
         if (effectiveCwd.startsWith('/private/var/')) {
           cwdAliases.add(effectiveCwd.replace(/^\/private\/var\//, '/var/'));
@@ -755,10 +774,10 @@ process.stdin.on('end', () => {
           expect(await response.text()).toContain('tmp-permission-ok');
 
           const parsed = JSON.parse(await fsp.readFile(envFile, 'utf8')) as {
-            config: { permission?: { external_directory?: Record<string, string> } };
+            config: { permissions?: Array<{ action?: string; resource?: string; effect?: string }> };
             tmpdir: string;
           };
-          const externalDirectory = parsed.config.permission?.external_directory ?? {};
+          const externalDirectory = externalDirectoryGrants(parsed.config);
           expect(parsed.tmpdir).toBe(configuredTemp ? markerDir : tmpdir());
           const expectedRoots = [parsed.tmpdir, ...(process.platform === 'win32' ? [] : ['/tmp'])];
           for (const root of expectedRoots) {
@@ -838,9 +857,9 @@ process.stdin.on('end', () => {
         expect(await response.text()).toContain('skill-permission-ok');
 
         const parsed = JSON.parse(readFileSync(envFile, 'utf8')) as {
-          permission?: { external_directory?: Record<string, string> };
+          permissions?: Array<{ action?: string; resource?: string; effect?: string }>;
         };
-        const externalDirectory = parsed.permission?.external_directory ?? {};
+        const externalDirectory = externalDirectoryGrants(parsed);
         const roots = new Set([userSkillDir, realpathSync(userSkillDir)]);
         const allowedRoot = [...roots].find(
           (root) =>

@@ -20,6 +20,12 @@
 //     (including .deferred/.immediate/.exclusive/.default), matching
 //     better-sqlite3, instead of delegating to bun's helper.
 //   - Statement gains bind()/columns() (bun exposes columnNames).
+//   - BLOB results are converted from Uint8Array to Buffer (see
+//     convertRow below): bun:sqlite returns Uint8Array for BLOB
+//     columns, better-sqlite3 returns Buffer, and daemon consumers
+//     rely on Buffer semantics (`.toString()` decoding, hashing,
+//     JSON.parse of stored payloads). Without the conversion a
+//     stored text blob reads back as "104,101,108,108,111,…".
 //
 // This is the contract, not a full better-sqlite3 clone. Surface the
 // daemon does not use and bun:sqlite cannot faithfully provide
@@ -30,6 +36,42 @@
 
 import { Database as BunDatabase } from "bun:sqlite";
 import { existsSync } from "node:fs";
+
+/** better-sqlite3 returns Buffer for BLOB columns; bun:sqlite returns
+ *  Uint8Array. Convert blob values in result rows back to Buffer so
+ *  consumers see the contract they were written against. Rows without
+ *  blob values are returned untouched (identity preserved). */
+function blobValue(value: unknown): unknown {
+  return value instanceof Uint8Array && !Buffer.isBuffer(value)
+    ? Buffer.from(value)
+    : value;
+}
+
+function convertRow(row: unknown): unknown {
+  if (row === null || typeof row !== "object") return row;
+  if (Array.isArray(row)) {
+    // raw-mode value arrays
+    let out: unknown[] | null = null;
+    for (let i = 0; i < row.length; i++) {
+      const converted = blobValue(row[i]);
+      if (converted !== row[i]) {
+        out ??= row.slice();
+        out[i] = converted;
+      }
+    }
+    return out ?? row;
+  }
+  let out: Record<string, unknown> | null = null;
+  for (const key of Object.keys(row)) {
+    const value = (row as Record<string, unknown>)[key];
+    const converted = blobValue(value);
+    if (converted !== value) {
+      out ??= { ...(row as Record<string, unknown>) };
+      out[key] = converted;
+    }
+  }
+  return out ?? row;
+}
 
 class AdapterStatement {
   private rawMode = false;
@@ -79,21 +121,21 @@ class AdapterStatement {
     const p = this.args(params);
     if (this.rawMode) {
       const rows = this.stmt.values(...p);
-      return rows.length ? rows[0] : undefined;
+      return rows.length ? convertRow(rows[0]) : undefined;
     }
     const row = this.stmt.get(...p);
     // better-sqlite3 returns undefined for no row; bun:sqlite returns null.
-    return row === null ? undefined : row;
+    return row === null ? undefined : convertRow(row);
   }
   all(...params: unknown[]): unknown[] {
     const p = this.args(params);
-    if (this.rawMode) return this.stmt.values(...p);
-    return this.stmt.all(...p);
+    if (this.rawMode) return (this.stmt.values(...p) as unknown[]).map(convertRow);
+    return (this.stmt.all(...p) as unknown[]).map(convertRow);
   }
   *iterate(...params: unknown[]): IterableIterator<unknown> {
     const p = this.args(params);
     if (typeof this.stmt.iterate === "function") {
-      yield* this.stmt.iterate(...p);
+      for (const row of this.stmt.iterate(...p)) yield convertRow(row);
     } else {
       yield* this.all(...p);
     }
@@ -165,7 +207,9 @@ export class Database {
    *  too (e.g. journal_mode), reads return rows, and { simple: true }
    *  returns the first column of the first row. */
   pragma(sql: string, options: { simple?: boolean } = {}): any {
-    const rows = this.db.query(`PRAGMA ${sql}`).all() as Record<string, unknown>[];
+    const rows = (this.db.query(`PRAGMA ${sql}`).all() as Record<string, unknown>[]).map(
+      (row) => convertRow(row) as Record<string, unknown>,
+    );
     if (options.simple) {
       if (!rows.length) return undefined;
       return Object.values(rows[0]!)[0];
@@ -235,9 +279,10 @@ export class Database {
     return this;
   }
 
-  /** Serialize the database to bytes (bun:sqlite native). */
-  serialize(): Uint8Array {
-    return (this.db as any).serialize();
+  /** Serialize the database to bytes (bun:sqlite native). Returned as
+   *  a Buffer, matching better-sqlite3's serialize(). */
+  serialize(): Buffer {
+    return Buffer.from((this.db as any).serialize() as Uint8Array);
   }
 
   close(): this {

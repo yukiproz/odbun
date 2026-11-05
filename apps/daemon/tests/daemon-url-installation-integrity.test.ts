@@ -6,8 +6,40 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { transformSync } from "esbuild";
 import { beforeAll, describe, expect, it } from "vitest";
+import { isBun } from "./helpers/runtime.js";
 
 const execFileAsync = promisify(execFile);
+
+// The runner subprocess below monkey-patches `node:child_process.spawn`
+// and re-syncs the ESM bindings via `syncBuiltinESMExports` so the
+// compiled resolver's spawns are recorded. That re-sync is a Node-only
+// mechanism: under Bun the call succeeds but the named `spawn` import
+// keeps pointing at the unpatched implementation (proven by probe), so
+// the spawn log comes back empty even though discovery ran. When the
+// harness itself runs on Bun, execute the runner with a real `node`
+// binary resolved from PATH; every assertion is unchanged, and the
+// recorded spawn command is that binary (the runner's own execPath).
+let runnerRuntimePromise: Promise<string> | null = null;
+function runnerRuntime(): Promise<string> {
+  if (!isBun) return Promise.resolve(process.execPath);
+  runnerRuntimePromise ??= (async () => {
+    for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+      if (!dir) continue;
+      const candidate = path.join(dir, "node");
+      try {
+        await fs.access(candidate, fs.constants.X_OK);
+        // Bun's own toolchain puts a `node` shim (a bun re-invocation) on
+        // PATH under bunx; only accept a candidate that is genuinely Node.
+        await execFileAsync(candidate, ["-e", "process.exit(typeof Bun === 'undefined' ? 0 : 1)"]);
+        return candidate;
+      } catch {
+        // not executable, or not real Node — keep searching
+      }
+    }
+    return process.execPath;
+  })();
+  return runnerRuntimePromise;
+}
 const daemonRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 let compiledResolver: string;
 
@@ -84,11 +116,12 @@ async function runDiscovery(options: {
       });
       console.log(JSON.stringify({url,calls}));
     `);
-    const { stdout } = await execFileAsync(process.execPath, [runner], { cwd: root });
+    const runtime = await runnerRuntime();
+    const { stdout } = await execFileAsync(runtime, [runner], { cwd: root });
     const result = JSON.parse(stdout.trim()) as {
       url: string; calls: { command: string; args: string[]; cwd: string }[];
     };
-    return { ...result, devEntry, root };
+    return { ...result, devEntry, root, runtime };
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
   }
@@ -109,7 +142,7 @@ describe("daemon discovery preserves installed runtime integrity", () => {
     const result = await runDiscovery({ layout });
     expect(result.url).toBe("http://127.0.0.1:60123");
     expect(result.calls).toEqual([{
-      command: process.execPath, args: [result.devEntry, "status", "--json"], cwd: result.root,
+      command: result.runtime, args: [result.devEntry, "status", "--json"], cwd: result.root,
     }]);
   });
 
@@ -130,7 +163,7 @@ describe("daemon discovery preserves installed runtime integrity", () => {
   it("never retries a failed Node probe with a package manager", async () => {
     const result = await runDiscovery({ layout: "source", devFailure: true });
     expect(result.url).toBe("http://127.0.0.1:7456");
-    expect(result.calls.map((call) => call.command)).toEqual([process.execPath]);
+    expect(result.calls.map((call) => call.command)).toEqual([result.runtime]);
   });
 
   it("preserves explicit URL and inherited IPC short circuits", async () => {

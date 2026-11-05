@@ -121,8 +121,11 @@ describe('createWorkspaceOwnedDesignSystem', () => {
     );
 
     expect(ensureWorkspaceResource).not.toHaveBeenCalled();
+    // fs/promises.access resolves undefined under Node and null under Bun;
+    // the assertion's intent is that the file exists (access does not
+    // reject), so accept either runtime's empty resolution value.
     await expect(access(path.join(root, created.id.slice('user:'.length), 'metadata.json')))
-      .resolves.toBeUndefined();
+      .resolves.toBeFalsy();
   });
 });
 
