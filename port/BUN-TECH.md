@@ -61,7 +61,7 @@ Bun docs mention `bun lint`, but that command **does not exist in
 | `bun prune --production` | Rejected: build needs devDependencies (`tsc`, `next`) |
 | `bun audit fix` / automatic `bun update` | Rejected: silently moving dependency inputs is wrong for a port that must stay diffable against its upstream base |
 | `bun fmt` | Not adopted: upstream-derived files keep upstream style; revisiting for port-authored files only is Hadi's call |
-| `bun install --frozen-lockfile` | ⚠️ **Status CHANGED vs parent.** Parent rejected it because its rsync folder-2 pattern restores a pristine manifest that fights a kept lockfile. This port is a standalone tree (`odbun/`) with its own manifest + lockfile and no rsync-pristine pattern, so the parent's evidence does **not** apply here. Verdict: **RE-EVALUATE at first build** — candidate, not rejected, not yet adopted |
+| `bun install --frozen-lockfile` | ⚠️ **Status CHANGED vs parent.** Parent rejected it because its rsync folder-2 pattern restores a pristine manifest that fights a kept lockfile. This port is a standalone tree (`odbun/`) with its own manifest + lockfile and no rsync-pristine pattern, so the parent's evidence does **not** apply here. Verdict: **ADOPTED (2026-11-06)** — frozen installs pass on merged main (FINAL-VERIFY §1: 1,013 pkgs, zero drift) and the CI typecheck/smoke jobs run frozen; requirement: bun-migrated manifest + bun.lock committed as one unit |
 
 ## 5. Candidates — recorded, not yet used
 
