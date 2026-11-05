@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSyncCapture } from '../../bun/spawn.js';
 import { DEFAULT_MODEL_OPTION, clampCodexReasoning } from './shared.js';
 import { resolveAgentLaunch } from '../launch.js';
 import type { RuntimeModelOption } from '../types.js';
@@ -648,10 +648,12 @@ export function probeCodexVersion(launchPath: string): string | null {
   if (codexVersionProbeCache?.path === launchPath) return codexVersionProbeCache.version;
   let version: string | null = null;
   try {
-    const result = spawnSync(launchPath, ['--version'], {
-      encoding: 'utf8',
+    // odbun R3: Bun.spawnSync via spawnSyncCapture. Two parity notes:
+    // a missing binary THROWS here (spawnSync reported it on
+    // result.error) — the catch below maps both to version = null —
+    // and `windowsHide` has no Bun equivalent and was win32-cosmetic.
+    const result = spawnSyncCapture(launchPath, ['--version'], {
       timeout: 5000,
-      windowsHide: true,
     });
     const raw = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
     version = raw ? (raw.split(/\r?\n/u)[0] ?? null) : null;
