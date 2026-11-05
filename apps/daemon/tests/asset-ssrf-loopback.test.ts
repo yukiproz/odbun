@@ -348,10 +348,16 @@ describe('assertAndFetchExternalAsset — fail-closed paths (issue #5478)', () =
 });
 
 describe('assertAndFetchExternalAsset — TOCTOU with injectable lookup (issue #5478)', () => {
-  it('fetch carries dispatcher so connect-time rebind to loopback is refused', async () => {
-    // The validation lookup returns a public IP, so assertExternalAssetUrl passes.
-    // The fetch stub receives the request init — assert that `dispatcher` is
-    // attached, proving the validating Agent would refuse a connect-time rebind.
+  it('validated fetch forces redirect error and carries no dispatcher (R4)', async () => {
+    // The validation lookup returns a public IP, so assertExternalAssetUrl
+    // passes and the fetch goes ahead. Under the old Undici stack the
+    // request init also carried a validating dispatcher that pinned DNS
+    // at connect time, refusing a rebind to loopback; Bun's native fetch
+    // has no connect-time lookup hook, so R4 removed the pin (the
+    // residual TOCTOU window is documented in connectionTest.ts). What
+    // still guards this hop is the fail-closed pre-validation (covered
+    // by the neighbouring tests) plus the forced `redirect: 'error'`,
+    // asserted here against a caller init that tries to allow redirects.
     const publicLookup: DnsLookupFn = async () => [{ address: '93.184.216.34', family: 4 }];
     let capturedInit: RequestInit | undefined;
     const stubFetch = async (_url: string, init?: RequestInit) => {
@@ -361,13 +367,13 @@ describe('assertAndFetchExternalAsset — TOCTOU with injectable lookup (issue #
 
     await assertAndFetchExternalAsset(
       'http://rebind.example.com/asset.png',
-      {},
+      { redirect: 'follow' },
       publicLookup,
       stubFetch as never,
     );
-    // The dispatcher must be present so production fetch uses the validating Agent
+    // No dispatcher under native fetch; the forced redirect stands.
     expect(capturedInit).toBeDefined();
-    expect((capturedInit as { dispatcher?: unknown }).dispatcher).toBeDefined();
+    expect((capturedInit as { dispatcher?: unknown }).dispatcher).toBeUndefined();
     expect(capturedInit?.redirect).toBe('error');
   });
 

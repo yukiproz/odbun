@@ -7,7 +7,6 @@ import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { Socks5ProxyAgent } from 'undici';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as platform from '@open-design/platform';
 
@@ -322,14 +321,17 @@ describe('POST /api/provider/models', () => {
     });
   });
 
-  it('routes provider model discovery through the live proxy dispatcher', async () => {
+  it('routes provider model discovery through the live proxy', async () => {
     const proxySpy = vi.spyOn(platform, 'resolveSystemProxyEnv').mockReturnValue({
       HTTP_PROXY: 'http://proxy.example.test:8080',
       NODE_USE_ENV_PROXY: '1',
       NO_PROXY: 'localhost,127.0.0.1,[::1]',
     });
     const fetchMock = passThroughOrUpstream((_url, init) => {
-      expect(init?.dispatcher).toBeTruthy();
+      // Bun-native fetch (R4): the resolved system proxy rides on the
+      // init as a `proxy` string; there is no Undici dispatcher any more.
+      expect((init as { proxy?: string } | undefined)?.proxy).toBe('http://proxy.example.test:8080');
+      expect((init as { dispatcher?: unknown } | undefined)?.dispatcher).toBeUndefined();
       return jsonResponse({
         data: [{ id: 'gpt-4o', object: 'model' }],
       });
@@ -2177,13 +2179,14 @@ describe('POST /api/test/connection provider mode', () => {
     });
   });
 
-  it('uses a live system-proxy dispatcher for provider-mode fetches', async () => {
+  it('uses the live system proxy for provider-mode fetches', async () => {
     const proxySpy = vi.spyOn(platform, 'resolveSystemProxyEnv').mockReturnValue({
       HTTPS_PROXY: 'http://system-proxy.internal:8443',
       NODE_USE_ENV_PROXY: '1',
     });
     const fetchMock = vi.fn((_input: FetchInput, init?: FetchInit) => {
-      expect(init?.dispatcher).toBeDefined();
+      // Bun-native fetch (R4): proxy string on the init, no dispatcher.
+      expect((init as { proxy?: string } | undefined)?.proxy).toBe('http://system-proxy.internal:8443');
       return Promise.resolve(jsonResponse({
         choices: [{ message: { role: 'assistant', content: 'ok' } }],
       }));
@@ -2217,7 +2220,7 @@ describe('POST /api/test/connection provider mode', () => {
     expect(mergeNoProxyWithLoopbackDefaults(input)).toBe(expected);
   });
 
-  it('uses a SOCKS dispatcher when ALL_PROXY is the only configured proxy', async () => {
+  it('uses a SOCKS proxy when ALL_PROXY is the only configured proxy', async () => {
     const proxySpy = vi.spyOn(platform, 'resolveSystemProxyEnv').mockReturnValue({});
 
     try {
@@ -2225,20 +2228,24 @@ describe('POST /api/test/connection provider mode', () => {
         ALL_PROXY: 'socks5://system-socks:1080',
       });
 
-      expect(requestInit.dispatcher).toBeDefined();
+      // Bun-native fetch (R4) speaks socks5:// directly: the request
+      // init carries the proxy URL string, never a dispatcher.
+      expect(requestInit).toEqual({ proxy: 'socks5://system-socks:1080' });
       await expect(close()).resolves.toBeUndefined();
     } finally {
       proxySpy.mockRestore();
     }
   });
 
-  it('forwards timeout options through SOCKS dispatches', async () => {
+  it('accepts timeout options alongside a SOCKS proxy (call-shape compatibility)', async () => {
     const proxySpy = vi.spyOn(platform, 'resolveSystemProxyEnv').mockReturnValue({});
-    const dispatchSpy = vi
-      .spyOn(Socks5ProxyAgent.prototype, 'dispatch')
-      .mockReturnValue(true as ReturnType<typeof Socks5ProxyAgent.prototype.dispatch>);
 
     try {
+      // The old Undici dispatchers consumed headers/body timeouts at
+      // dispatch time. Native fetch has no equivalent (callers'
+      // AbortSignals govern timeouts), so R4 accepts the options only
+      // to keep the call shape — the resolved proxy must still come
+      // back unchanged and `close` stays a no-op.
       const { close, requestInit } = proxyDispatcherRequestInit(
         {
           ALL_PROXY: 'socks5://system-socks:1080',
@@ -2249,30 +2256,9 @@ describe('POST /api/test/connection provider mode', () => {
         },
       );
 
-      const dispatcher = requestInit.dispatcher as unknown as {
-        dispatch(options: { origin: string; path: string; method: string }, handler: unknown): boolean;
-      };
-      expect(dispatcher).toBeDefined();
-      dispatcher.dispatch(
-        {
-          origin: 'https://api.openai.com',
-          path: '/v1/chat/completions',
-          method: 'POST',
-        },
-        {},
-      );
-      expect(dispatchSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          origin: 'https://api.openai.com',
-          path: '/v1/chat/completions',
-          headersTimeout: 1234,
-          bodyTimeout: 5678,
-        }),
-        expect.anything(),
-      );
+      expect(requestInit).toEqual({ proxy: 'socks5://system-socks:1080' });
       await expect(close()).resolves.toBeUndefined();
     } finally {
-      dispatchSpy.mockRestore();
       proxySpy.mockRestore();
     }
   });
@@ -3899,9 +3885,10 @@ process.exit(1);
     );
   });
 
-  it('launches OpenCode connection tests with 1.3-compatible JSON stdin args', async () => {
+  it('launches OpenCode connection tests with v2 JSON stdin args', async () => {
     const markerDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'od-opencode-argv-'));
     const argvFile = path.join(markerDir, 'argv.json');
+    const envFile = path.join(markerDir, 'env.json');
     const stdinFile = path.join(markerDir, 'stdin.txt');
     try {
       await withFakeOpenCode(
@@ -3913,6 +3900,7 @@ if (args[0] === 'models') {
   process.exit(0);
 }
 fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(args));
+fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify({ PWD: process.env.PWD ?? null }));
 let stdin = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { stdin += chunk; });
@@ -3945,22 +3933,30 @@ process.stdin.on('end', () => {
             sample: 'ok',
           });
 
-          // `--dir` pins OpenCode's workspace to the probe's own temp cwd, so
-          // a connection test cannot adopt the repository root as its
-          // worktree. The path is minted per probe; everything around it still
-          // has to match byte-for-byte, since the 1.3 compatibility this test
-          // guards is a property of the argument ORDER.
+          // OpenCode v2 has no `--dir`: the workspace reaches the probe
+          // through the spawn itself — the runner spawns with the probe's
+          // own temp dir as cwd and pins `env.PWD` to the same directory
+          // (a spawn cwd alone does not update the child's PWD, and v2
+          // resolves `options.root ?? env.PWD ?? process.cwd()`), so a
+          // connection test cannot adopt the repository root as its
+          // worktree. The argv still has to match byte-for-byte, since
+          // the compatibility this test guards is a property of the
+          // argument ORDER; the PWD assertions guard the `--dir`
+          // replacement mechanism.
           const argv = JSON.parse(await fsp.readFile(argvFile, 'utf8')) as string[];
-          expect(argv.slice(0, 3)).toEqual(['run', '--format', 'json']);
-          expect(argv[3]).toBe('--dir');
-          expect(path.isAbsolute(argv[4] ?? '')).toBe(true);
-          expect(argv.slice(5)).toEqual([
+          expect(argv).toEqual([
+            'run',
+            '--format',
+            'json',
             '-m',
             'github-copilot/gpt-4o',
-            '--pure',
             '--title',
             'Connection test',
           ]);
+          const childEnv = JSON.parse(await fsp.readFile(envFile, 'utf8')) as { PWD: string | null };
+          expect(childEnv.PWD).toBeTruthy();
+          expect(path.isAbsolute(childEnv.PWD ?? '')).toBe(true);
+          expect(childEnv.PWD).not.toBe(process.cwd());
           await expect(fsp.readFile(stdinFile, 'utf8')).resolves.toBe('Reply with only: ok');
         },
       );
