@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { detectAgent } from '../../src/runtimes/detection.js';
+import { isBun } from '../helpers/runtime.js';
 import {
   buildCompatibilityDiagnostic,
   buildVersionDiagnostic,
@@ -74,7 +75,11 @@ function writeProfileBin(dir: string, compatible: boolean): string {
 }
 
 describe('runtime version policy', () => {
-  it.each([
+  // Bun-only code path: the version probe runs the real execFileBun
+  // in-process; under the Node harness the probe fails, so a working
+  // shim's version never surfaces and availability degrades. Runs on
+  // the Bun track. See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun).each([
     ['0.1.0-rc.6', true, undefined],
     ['0.1.0-rc.7', true, 'untested-version'],
   ] as const)('detects %s with available=%s', async (version, available, reason) => {
@@ -111,7 +116,9 @@ describe('runtime version policy', () => {
   // policy naming one of them warns every user who followed our instructions.
   // A version off that line still warns — the point is to stop pinning, not to
   // stop checking.
-  it.each([
+  // Bun-only code path: same execFileBun version probe as above.
+  // See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun).each([
     ['0.1.0-rc.6', undefined],
     ['0.1.0-rc.8', undefined],
     ['0.1.0-rc.14', undefined],
@@ -154,7 +161,12 @@ describe('runtime version policy', () => {
     });
   });
 
-  it.each([
+  // Bun-only code path: the version + profile probes run the real
+  // execFileBun in-process; under the Node harness both fail, so the
+  // handshake never runs and the failure reads as a version-probe
+  // failure instead. Runs on the Bun track.
+  // See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun).each([
     [true, true, undefined],
     [false, false, 'runtime-profile-incompatible'],
   ] as const)('gates availability on the external profile handshake', async (compatible, available, reason) => {

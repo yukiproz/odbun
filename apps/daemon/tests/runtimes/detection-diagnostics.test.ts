@@ -11,9 +11,16 @@ import {
   writeFileSync,
 } from './helpers/test-helpers.js';
 import { detectAgentsStream } from '../../src/runtimes/detection.js';
+import { isBun } from '../helpers/runtime.js';
 import { buildAuthDiagnostic } from '../../src/runtimes/diagnostics.js';
 
 const posixTest = process.platform === 'win32' ? test.skip : test;
+// Bun-only code path: these cases need detection's probes (version /
+// auth / model list) to succeed against fixture binaries, and the
+// probes run the real execFileBun in-process; under the Node harness
+// they fail, so availability/auth/diagnostics degrade. Runs on the
+// Bun track. See port/TEST-SUITES.md §4.2.
+const posixBunTest = process.platform === 'win32' ? test.skip : test.skipIf(!isBun);
 
 function writeCursorAgent(dir: string, statusOutput: string): void {
   const bin = join(dir, 'cursor-agent');
@@ -83,7 +90,7 @@ posixTest('detectAgents emits a not-on-path diagnostic with searched dirs + fix 
   }
 });
 
-posixTest('detectAgents finds OpenCode when npm exposes only the opencode binary', async () => {
+posixBunTest('detectAgents finds OpenCode when npm exposes only the opencode binary', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-opencode-npm-bin-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
@@ -105,7 +112,7 @@ posixTest('detectAgents finds OpenCode when npm exposes only the opencode binary
   }
 });
 
-posixTest('detectAgents emits a not-executable diagnostic for a PATH match without execute permission', async () => {
+posixBunTest('detectAgents emits a not-executable diagnostic for a PATH match without execute permission', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-diag-notexec-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
@@ -136,7 +143,7 @@ posixTest('detectAgents emits a not-executable diagnostic for a PATH match witho
   }
 });
 
-posixTest('detectAgents emits an auth-missing diagnostic when the auth probe reports not authenticated', async () => {
+posixBunTest('detectAgents emits an auth-missing diagnostic when the auth probe reports not authenticated', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-diag-auth-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
