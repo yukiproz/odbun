@@ -6,7 +6,7 @@ import path from 'node:path';
 import { strategyPackageHashFromDigests } from '@open-design/plugin-runtime';
 import { OD_NEXT_PROMPT_BUNDLE_SCHEMA_V2, parseOdNextPromptBundleV2, serializeCanonicalXml, StrategyTaskProjectionV2Schema } from '@open-design/contracts';
 import type { AppliedPluginSnapshot, OpenDesignPlanContractV2 } from '@open-design/contracts';
-import type Database from 'better-sqlite3';
+import type Database from '../../../src/bun/db.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { closeDatabase, openDatabase, upsertMessage } from '../../../src/db.js';

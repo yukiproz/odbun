@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { expect, it } from 'vitest';
 import type { SharePublishResult } from '@open-design/contracts';
 import { createSharePublicationCompletion } from '../src/collab/share-publication-completion.js';

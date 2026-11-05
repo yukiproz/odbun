@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { tmpdir } from 'node:os';
 import { expect, it, vi } from 'vitest';
 import type { WorkspaceDirectoryItem } from '@open-design/contracts';

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type Database from 'better-sqlite3';
+import type Database from '../src/bun/db.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

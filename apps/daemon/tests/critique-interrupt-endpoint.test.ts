@@ -10,7 +10,7 @@
 import http from 'node:http';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import {
   getCritiqueRun,
   insertCritiqueRun,

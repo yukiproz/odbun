@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { randomUUID } from 'node:crypto';
 import {
   chmodSync,

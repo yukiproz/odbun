@@ -17,7 +17,7 @@ import url from 'node:url';
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { mkdtemp, rm, writeFile, mkdir, symlink, readdir, readFile } from 'node:fs/promises';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { c as tarCreate } from 'tar';
 import { migratePlugins } from '../src/plugins/persistence.js';
 import { installPlugin, type ArchiveFetcher } from '../src/plugins/installer.js';

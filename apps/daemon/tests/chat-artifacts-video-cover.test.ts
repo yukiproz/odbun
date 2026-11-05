@@ -24,7 +24,7 @@
  */
 
 import type http from 'node:http';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fsp } from 'node:fs';

@@ -12,7 +12,7 @@ import {
   serializeOdNextPromptBundleV1,
   type AppliedPluginSnapshot,
 } from '@open-design/contracts';
-import Database from 'better-sqlite3';
+import Database from '../../src/bun/db.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { closeDatabase, openDatabase, upsertMessage } from '../../src/db.js';

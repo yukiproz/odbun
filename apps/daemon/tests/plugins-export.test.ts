@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { migratePlugins } from '../src/plugins/persistence.js';
 import { createSnapshot } from '../src/plugins/snapshots.js';
 import { ExportError, exportPlugin } from '../src/plugins/export.js';

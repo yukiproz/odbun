@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { createPublicFileMutations } from '../src/collab/public-file-mutations.js';
 import { createProjectPublicFileStop } from '../src/collab/project-public-file-stop.js';
 import { mkdtempSync, rmSync } from 'node:fs';

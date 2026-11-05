@@ -22,7 +22,7 @@
 // row for it may appear under the foreign conversation.
 
 import type { Server } from 'node:http';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';

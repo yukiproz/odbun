@@ -13,7 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { WorkspaceCollabContext } from '@open-design/contracts';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import express from 'express';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 

@@ -22,7 +22,7 @@ import {
 } from '../src/db.js';
 import { listLibraryAssets } from '../src/library-store.js';
 import { reconcileLibrary } from '../src/library-sync.js';
-import type Database from 'better-sqlite3';
+import type Database from '../src/bun/db.js';
 
 let db: Database.Database;
 let dataDir: string;

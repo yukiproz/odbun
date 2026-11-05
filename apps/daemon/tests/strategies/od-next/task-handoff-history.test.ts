@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type Database from 'better-sqlite3';
+import type Database from '../../../src/bun/db.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseOdNextPromptBundleV2, serializeOdNextPromptBundleV2 } from '@open-design/contracts';
 import { strategyPackageHashFromDigests } from '@open-design/plugin-runtime';

@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, mkdirSync, renameSync, rmSync, symlinkSync, wri
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 
 import {
   codexSessionIdFromRunEvents,

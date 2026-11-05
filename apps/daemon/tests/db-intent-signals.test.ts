@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +17,7 @@ import {
 // (specs/current/intent-signal-cache-hotfix.md R2): monotonic ON, merge —
 // never replace — against the stored value, so a latch carrying one signal
 // can never clobber a previously latched different signal (PR #5709 review).
-// A deterministic in-thread race is not constructible — better-sqlite3 is
+// A deterministic in-thread race is not constructible — bun:sqlite is
 // synchronous, so two latch calls cannot interleave mid-function — hence
 // these tests pin the observable merge semantics, including across two
 // separate connections to the same database file, and the latch itself runs

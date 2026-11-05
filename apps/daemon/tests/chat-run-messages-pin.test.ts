@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { describe, expect, it } from 'vitest';
 
 import { pinAssistantMessageOnRunCreate } from '../src/runtimes/chat-run-messages.js';

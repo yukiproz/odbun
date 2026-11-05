@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { migrateCommentRelayOutbox } from '../src/collab/comment-relay-outbox.js';
 import { createSqlitePublicFilePublicationStore, migratePublicFilePublications } from '../src/collab/public-file-publication-store.js';

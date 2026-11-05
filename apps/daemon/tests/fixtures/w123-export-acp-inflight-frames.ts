@@ -47,7 +47,7 @@ import { readdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
+import Database from '../../src/bun/db.js';
 
 const TRIM_LIMIT = 180;
 const OUT = fileURLToPath(new URL('./w123-acp-inflight-frames.json', import.meta.url));

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
+import Database from '../../src/bun/db.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   renderActiveStageBlocks,

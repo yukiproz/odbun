@@ -8,7 +8,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { migratePlugins } from '../src/plugins/persistence.js';
 import {
   classifyPluginInstallError,

@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../src/bun/db.js';
 import { createInMemoryPublicFilePublicationStore } from '../src/collab/public-file-publication-store.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createShareBindingOutbox, type ShareBindingIntent } from '../src/collab/share-binding-outbox.js';

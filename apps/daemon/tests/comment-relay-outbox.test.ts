@@ -1,6 +1,6 @@
 import { createCommentSyncStateService } from '../src/collab/comment-sync-state.js';
 import { afterEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
+import Database from "../src/bun/db.js";
 
 const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }));
 
