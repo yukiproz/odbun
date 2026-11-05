@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fetchMock } from '../../helpers/fetch-double.js';
 
 // Mock the one-shot listener so tests don't actually bind 127.0.0.1:56121
 // and don't race each other. The real listener is covered by
@@ -205,7 +206,7 @@ describe('xai-routes', () => {
     const { state } = await jsonOf(startResp);
 
     // Stub the xAI token endpoint that completeXAIAuth will hit.
-    globalThis.fetch = vi.fn(async (input: any, init?: any) => {
+    globalThis.fetch = fetchMock(async (input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url === XAI_OAUTH_TOKEN_ENDPOINT) {
         expect(init?.dispatcher).toBe(proxyDispatcherToken);
@@ -222,7 +223,7 @@ describe('xai-routes', () => {
       }
       // Pass-through anything else (status check uses fetch too via real fetch).
       return realFetch(input, init);
-    }) as typeof fetch;
+    });
 
     // Fire the mocked callback as if the browser had returned.
     expect(onCallbackHolder.current).toBeTruthy();
@@ -245,7 +246,7 @@ describe('xai-routes', () => {
     });
     const { state } = await jsonOf(startResp);
 
-    globalThis.fetch = vi.fn(async (input: any, init?: any) => {
+    globalThis.fetch = fetchMock(async (input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url === XAI_OAUTH_TOKEN_ENDPOINT) {
         expect(init?.dispatcher).toBe(proxyDispatcherToken);
@@ -261,7 +262,7 @@ describe('xai-routes', () => {
         );
       }
       return realFetch(input, init);
-    }) as typeof fetch;
+    });
 
     const completeResp = await fetch(
       `${app.baseUrl}/api/xai/oauth/complete`,
@@ -375,7 +376,7 @@ describe('xai-routes', () => {
     proxyDispatcherCloseMock.mockImplementationOnce(async () => {
       expect(bodyConsumed).toBe(true);
     });
-    globalThis.fetch = vi.fn(async (input: any, init?: any) => {
+    globalThis.fetch = fetchMock(async (input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.includes('xai.example.test')) {
         xaiHit += 1;
@@ -430,7 +431,7 @@ describe('xai-routes', () => {
       // Pass through anything that isn't an xAI call (the test's own
       // request to the local express server).
       return realFetch(input, init);
-    }) as typeof fetch;
+    });
 
     const r = await fetch(`${app.baseUrl}/api/xai/search`, {
       method: 'POST',
@@ -464,7 +465,7 @@ describe('xai-routes', () => {
       JSON.stringify({ providers: { grok: { apiKey: 'k' } } }),
       'utf8',
     );
-    globalThis.fetch = vi.fn(async (input: any, init?: any) => {
+    globalThis.fetch = fetchMock(async (input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.includes('api.x.ai')) {
         return new Response('{"error":{"message":"rate limited"}}', {
@@ -473,7 +474,7 @@ describe('xai-routes', () => {
         });
       }
       return realFetch(input, init);
-    }) as typeof fetch;
+    });
 
     const r = await fetch(`${app.baseUrl}/api/xai/search`, {
       method: 'POST',
@@ -490,7 +491,7 @@ describe('xai-routes', () => {
     });
     const { state } = await jsonOf(startResp);
 
-    globalThis.fetch = vi.fn(async (input: any, init?: any) => {
+    globalThis.fetch = fetchMock(async (input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url === XAI_OAUTH_TOKEN_ENDPOINT) {
         return new Response(
@@ -503,7 +504,7 @@ describe('xai-routes', () => {
         );
       }
       return realFetch(input, init);
-    }) as typeof fetch;
+    });
 
     // Stage a real connected state via the paste-back path so we have a
     // token on disk, then start a *second* OAuth flow (which opens a
@@ -547,7 +548,7 @@ describe('xai-routes', () => {
     });
     const { state } = await jsonOf(startResp);
 
-    globalThis.fetch = vi.fn(async (input: any, init?: any) => {
+    globalThis.fetch = fetchMock(async (input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url === XAI_OAUTH_TOKEN_ENDPOINT) {
         return new Response(
@@ -560,7 +561,7 @@ describe('xai-routes', () => {
         );
       }
       return realFetch(input, init);
-    }) as typeof fetch;
+    });
 
     await onCallbackHolder.current!({ kind: 'ok', code: 'c', state });
     let status = await fetch(`${app.baseUrl}/api/xai/auth/status`).then((r) =>

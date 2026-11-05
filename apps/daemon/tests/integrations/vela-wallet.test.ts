@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { completeFetch } from '../helpers/fetch-double.js';
 
 import {
   clearVelaAuthorizationState,
@@ -67,7 +68,7 @@ describe('createVelaWalletSnapshotReader balance validation', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    const reader = createVelaWalletSnapshotReader({ fetch: fetchMock as typeof fetch });
+    const reader = createVelaWalletSnapshotReader({ fetch: completeFetch(fetchMock) });
 
     await expect(reader.read()).resolves.toMatchObject({
       status: 'available',
@@ -90,7 +91,7 @@ describe('createVelaWalletSnapshotReader balance validation', () => {
         headers: { 'content-type': 'application/json' },
       }),
     );
-    const reader = createVelaWalletSnapshotReader({ fetch: fetchMock as typeof fetch });
+    const reader = createVelaWalletSnapshotReader({ fetch: completeFetch(fetchMock) });
 
     await expect(reader.read()).resolves.toMatchObject({
       status: 'unavailable',
@@ -110,7 +111,7 @@ describe('createVelaWalletSnapshotReader balance validation', () => {
       }),
     );
     const reader = createVelaWalletSnapshotReader({
-      fetch: fetchMock as typeof fetch,
+      fetch: completeFetch(fetchMock),
       ttlMs: 60_000,
     });
 
@@ -143,7 +144,7 @@ describe('createVelaWalletSnapshotReader billing decoupling (OPEND-3553)', () =>
         headers: { 'content-type': 'application/json' },
       }),
     );
-    const reader = createVelaWalletSnapshotReader({ fetch: fetchMock as typeof fetch });
+    const reader = createVelaWalletSnapshotReader({ fetch: completeFetch(fetchMock) });
 
     const snapshot = await reader.read({ refresh: true });
 

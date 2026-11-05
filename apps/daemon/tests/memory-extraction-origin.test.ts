@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fetchMock } from './helpers/fetch-double.js';
 import { extractWithLLM, distillAnnotationsToMemory, __resetMemoryTurnDedupeForTests } from '../src/memory-llm.js';
 import { writeMemoryConfig, memoryEvents } from '../src/memory.js';
 import { listExtractions, __resetExtractionsForTests } from '../src/memory-extractions.js';
@@ -17,10 +18,10 @@ beforeEach(async () => {
     enabled: true, chatExtractionEnabled: true,
     extraction: { provider: 'openai', apiKey: 'sk-test', model: 'gpt-4o-mini' },
   });
-  globalThis.fetch = vi.fn(async () => Response.json({ choices: [{ message: { content: JSON.stringify({ entries: [{
+  globalThis.fetch = fetchMock(async () => Response.json({ choices: [{ message: { content: JSON.stringify({ entries: [{
     type: 'rule', name: 'Origin fixture headings', description: 'Consistent heading colors',
     body: 'Use cobalt blue for headings in this project.',
-  }] }) } }] })) as typeof fetch;
+  }] }) } }] }));
 });
 
 afterEach(async () => {

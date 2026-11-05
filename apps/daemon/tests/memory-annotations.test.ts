@@ -1,6 +1,7 @@
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fetchMock } from './helpers/fetch-double.js';
 
 import { distillAnnotationsToMemory } from '../src/memory-llm.js';
 import {
@@ -21,14 +22,14 @@ const originalFetch = globalThis.fetch;
 // Helper: stub the OpenAI chat-completions response the distiller's provider
 // path will hit (the extraction override below routes through callOpenAI).
 function mockOpenAiEntries(entries: unknown[]): void {
-  globalThis.fetch = vi.fn(async () =>
+  globalThis.fetch = fetchMock(async () =>
     new Response(
       JSON.stringify({
         choices: [{ message: { content: JSON.stringify({ entries }) } }],
       }),
       { status: 200, headers: { 'content-type': 'application/json' } },
     ),
-  ) as typeof fetch;
+  );
 }
 
 describe('annotation → memory distillation', () => {

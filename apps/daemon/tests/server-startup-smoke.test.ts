@@ -1,4 +1,5 @@
 import type http from 'node:http';
+import type { ReadableStreamDefaultReader } from 'node:stream/web';
 import { randomUUID } from 'node:crypto';
 import { access, chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

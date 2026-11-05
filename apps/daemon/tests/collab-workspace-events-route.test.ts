@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import http from 'node:http';
+import type { ReadableStreamDefaultReader } from 'node:stream/web';
 import type { Response } from 'express';
 import {
   emitWorkspaceEventToAllScopes,

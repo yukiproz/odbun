@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 
 import {
   buildSafeRunQualityProjectionFromDaemon,
@@ -640,7 +641,7 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
     const result = await reportRunCompletedFromDaemon({
       db: makeDbWithListMessages({ 'conv-1': [{ id: 'msg-1', role: 'assistant', content: 'done' }] }),
-      dataDir, run: makeRun(), fetchImpl: fetchSpy,
+      dataDir, run: makeRun(), fetchImpl: completeFetch(fetchSpy),
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(velaTraceBody(fetchSpy.mock.calls[0] as [string, RequestInit]).id).toBe('run-id-1');
@@ -661,7 +662,7 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     for (const mode of ['off', 'observe', 'send']) {
       vi.stubEnv('OPEN_DESIGN_EVAL_CONTRACT_V2_MODE', mode);
       const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
-      await reportRunCompletedFromDaemon({ db, dataDir, run, fetchImpl: fetchSpy });
+      await reportRunCompletedFromDaemon({ db, dataDir, run, fetchImpl: completeFetch(fetchSpy) });
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const payload = JSON.parse(fetchSpy.mock.calls[0]![1].body);
       batches.push(payload.batch);

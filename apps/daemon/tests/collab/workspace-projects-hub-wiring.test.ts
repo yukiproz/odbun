@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
+import { completeFetch } from '../helpers/fetch-double.js';
 
 import {
   handleHubProjectMetadataChanged,
@@ -92,7 +93,7 @@ describe('handleHubTeamProjectsChanged', () => {
           resolveDone();
         }
       },
-      fetchImpl: async () => sseResponse([readyFrame, frame]),
+      fetchImpl: completeFetch(async () => sseResponse([readyFrame, frame])),
     });
 
     try {

@@ -6,6 +6,7 @@ import {
   startHubEventsSubscriber,
   type HubEventsSubscriber,
 } from '../../src/collab/hub-events-subscriber.js';
+import { completeFetch } from '../helpers/fetch-double.js';
 import { createWorkspaceBillingRuntimeCoordinator } from '../../src/collab/workspace-billing-runtime.js';
 import type { VelaWorkspaceBillingProjection } from '../../src/integrations/vela-billing.js';
 
@@ -237,7 +238,7 @@ describe('startHubEventsSubscriber', () => {
         if (event.type === 'comment-changed') complete();
         else events.push(event);
       },
-      fetchImpl: async (url) => {
+      fetchImpl: completeFetch(async (url) => {
         requestedUrl = String(url);
         return sseResponse([
           `event: ready\ndata: ${JSON.stringify({ workspaceId: 'w1', capabilities: capable ? ['coding-plan-usage-events-v1'] : [] })}\n\n`,
@@ -250,7 +251,7 @@ describe('startHubEventsSubscriber', () => {
           ].map((event) => `event: workspace-event\ndata: ${JSON.stringify(event)}\n\n`),
           COMMENT_EVENT,
         ], { holdOpen: true });
-      },
+      }),
     });
     await finished;
     expect(new URL(requestedUrl).searchParams.get('codingPlanUsageEvents')).toBe('1');
@@ -304,7 +305,7 @@ describe('startHubEventsSubscriber', () => {
       },
       backoffMinMs: 1,
       backoffMaxMs: 2,
-      fetchImpl: async () => {
+      fetchImpl: completeFetch(async () => {
         fetches += 1;
         return fetches === 1
           ? sseResponse([
@@ -315,7 +316,7 @@ describe('startHubEventsSubscriber', () => {
               'event: ready\ndata: {"workspaceId":"w1","capabilities":["billing-revision-clocks-v1"]}\n\n',
               clockEvent,
             ], { holdOpen: true });
-      },
+      }),
     });
 
     await both;
@@ -344,14 +345,14 @@ describe('startHubEventsSubscriber', () => {
       }),
       onEvent: () => undefined,
       onSourceGap: recordGap,
-      fetchImpl: async () => sseResponse([
+      fetchImpl: completeFetch(async () => sseResponse([
         'event: source-status\ndata: {"listenerEpoch":"listener-before-ready","listenerHealth":"healthy","sourceGap":true}\n\n',
         'event: ready\ndata: {"workspaceId":"w1","capabilities":["billing-revision-clocks-v1"],"listenerEpoch":"listener-a","listenerHealth":"starting","sourceGap":true}\n\n',
         'event: source-status\ndata: {"listenerEpoch":"listener-a","listenerHealth":"mystery","sourceGap":true}\n\n',
         'event: heartbeat\ndata: {"listenerEpoch":"listener-a","listenerHealth":"healthy","sourceGap":true}\n\n',
         'event: source-status\ndata: {"listenerEpoch":"listener-a","listenerHealth":"healthy","sourceGap":true}\n\n',
         'event: source-status\ndata: {"listenerEpoch":"listener-b","listenerHealth":"healthy","sourceGap":true}\n\n',
-      ], { holdOpen: true }),
+      ], { holdOpen: true })),
     });
 
     await twoGaps;
@@ -379,11 +380,11 @@ describe('startHubEventsSubscriber', () => {
         health.push(state.healthy);
         if (health.length === 3) resolveUnhealthy();
       },
-      fetchImpl: async () => sseResponse([
+      fetchImpl: completeFetch(async () => sseResponse([
         'event: ready\ndata: {"workspaceId":"w1","capabilities":["workspace-member-events-v1","workspace-event-listener-status-v1"],"listenerEpoch":"listener-a","listenerHealth":"healthy","sourceGap":false}\n\n',
         'event: heartbeat\ndata: {"listenerEpoch":"listener-a","listenerHealth":"healthy","sourceGap":false}\n\n',
         'event: source-status\ndata: {"listenerEpoch":"listener-a","listenerHealth":"healthy","sourceGap":true}\n\n',
-      ], { holdOpen: true }),
+      ], { holdOpen: true })),
     });
 
     await unhealthy;
@@ -408,9 +409,9 @@ describe('startHubEventsSubscriber', () => {
         actual = healthy;
         resolveHealth();
       },
-      fetchImpl: async () => sseResponse([
+      fetchImpl: completeFetch(async () => sseResponse([
         'event: ready\ndata: {"workspaceId":"w1","capabilities":["workspace-event-listener-status-v1"],"listenerEpoch":"listener-a","listenerHealth":"healthy","sourceGap":false}\n\n',
-      ], { holdOpen: true }),
+      ], { holdOpen: true })),
     });
 
     await observed;
@@ -432,7 +433,7 @@ describe('startHubEventsSubscriber', () => {
         resolveDone();
       },
       onStateChange: (state) => states.push(state),
-      fetchImpl: async () => sseResponse([READY, HEARTBEAT, COMMENT_EVENT], { holdOpen: true }),
+      fetchImpl: completeFetch(async () => sseResponse([READY, HEARTBEAT, COMMENT_EVENT], { holdOpen: true })),
     });
 
     await done;
@@ -460,10 +461,10 @@ describe('startHubEventsSubscriber', () => {
         directoryEvents.push(event);
         resolveDone();
       },
-      fetchImpl: async () => sseResponse([
+      fetchImpl: completeFetch(async () => sseResponse([
         'event: ready\ndata: {"workspaceId":"w1","capabilities":["workspace-directory-events-v1"]}\n\n',
         'event: workspace-directory-changed\ndata: {"type":"workspace-directory-changed","workspaceId":"workspace-new","change":"created","at":"2026-08-14T00:00:00.000Z"}\n\n',
-      ], { holdOpen: true }),
+      ], { holdOpen: true })),
     });
 
     await done;
@@ -487,10 +488,10 @@ describe('startHubEventsSubscriber', () => {
       onEvent: () => undefined,
       onDirectoryEvent,
       onDrop,
-      fetchImpl: async () => sseResponse([
+      fetchImpl: completeFetch(async () => sseResponse([
         'event: ready\ndata: {"workspaceId":"w1","capabilities":[]}\n\n',
         'event: workspace-directory-changed\ndata: {"type":"workspace-directory-changed","workspaceId":"workspace-new","change":"created"}\n\n',
-      ], { holdOpen: true }),
+      ], { holdOpen: true })),
     });
 
     await vi.waitFor(() => expect(onDrop).toHaveBeenCalledWith({
@@ -519,10 +520,10 @@ describe('startHubEventsSubscriber', () => {
         resolveRevoked();
       },
       backoffMinMs: 1_000_000,
-      fetchImpl: async () => sseResponse([
+      fetchImpl: completeFetch(async () => sseResponse([
         'event: ready\ndata: {"workspaceId":"w1","capabilities":["workspace-member-events-v1"]}\n\n',
         'event: access-revoked\ndata: {"reason":"member-removed"}\n\n',
-      ], { holdOpen: true }),
+      ], { holdOpen: true })),
     });
 
     await revoked;
@@ -542,10 +543,10 @@ describe('startHubEventsSubscriber', () => {
     subscriber = startHubEventsSubscriber({
       resolveEndpoint: async () => ({ url: 'https://hub/events', headers: {}, workspaceId: 'w1' }),
       onEvent: () => undefined, onAccessRevoked, backoffMinMs: 1_000_000,
-      fetchImpl: async () => sseResponse([
+      fetchImpl: completeFetch(async () => sseResponse([
         'event: ready\ndata: {"workspaceId":"w1","workspaceMemberId":"m1","capabilities":[]}\n\n',
         `event: access-revoked\ndata: ${JSON.stringify({ reason, workspaceId, workspaceMemberId })}\n\n`,
-      ], { holdOpen: true }),
+      ], { holdOpen: true })),
     });
     await vi.waitFor(() => expect(onAccessRevoked).toHaveBeenCalledTimes(1));
     const payload = onAccessRevoked.mock.calls[0]![0];
@@ -569,13 +570,13 @@ describe('startHubEventsSubscriber', () => {
       onAccessRevoked: () => resolveRevoked(),
       backoffMinMs: 1,
       backoffMaxMs: 50,
-      fetchImpl: async () => {
+      fetchImpl: completeFetch(async () => {
         fetches += 1;
         return sseResponse([
           'event: ready\ndata: {"workspaceId":"w1","capabilities":["workspace-member-events-v1"]}\n\n',
           'event: access-revoked\ndata: {"reason":"member-removed"}\n\n',
         ], { holdOpen: true });
-      },
+      }),
     });
 
     await revoked;
@@ -601,10 +602,10 @@ describe('startHubEventsSubscriber', () => {
       },
       backoffMinMs: 1,
       backoffMaxMs: 2,
-      fetchImpl: async () => {
+      fetchImpl: completeFetch(async () => {
         connects += 1;
         return sseResponse([READY]); // closes immediately → next loop reconnects
-      },
+      }),
     });
 
     await second;
@@ -627,10 +628,10 @@ describe('startHubEventsSubscriber', () => {
       },
       backoffMinMs: 1,
       backoffMaxMs: 2,
-      fetchImpl: async () => {
+      fetchImpl: completeFetch(async () => {
         fetches += 1;
         return sseResponse([READY]);
-      },
+      }),
     };
 
     // `onReconnect` deliberately skips the first successful connection. The
@@ -698,10 +699,10 @@ describe('startHubEventsSubscriber', () => {
       },
       backoffMinMs: 1,
       backoffMaxMs: 2,
-      fetchImpl: async () =>
+      fetchImpl: completeFetch(async () =>
         endpointResolutions === 1
           ? sseResponse([READY])
-          : sseResponse([READY], { holdOpen: true }),
+          : sseResponse([READY], { holdOpen: true })),
     });
 
     await recovered;
@@ -743,14 +744,14 @@ describe('startHubEventsSubscriber', () => {
       },
       backoffMinMs: 1,
       backoffMaxMs: 2,
-      fetchImpl: async () => {
+      fetchImpl: completeFetch(async () => {
         fetches += 1;
         return sseResponse([
           fetches === 1
             ? 'event: ready\ndata: {"workspaceId":"w1","capabilities":["authoritative-project-presence-v1"]}\n\n'
             : 'event: ready\ndata: {"workspaceId":"w1","capabilities":[]}\n\n',
         ]);
-      },
+      }),
     });
 
     await second;
@@ -792,7 +793,7 @@ describe('startHubEventsSubscriber', () => {
       onError: (error) => errors.push(error),
       backoffMinMs: 1_000_000,
       backoffMaxMs: 1_000_000,
-      fetchImpl: async (_url, init) => {
+      fetchImpl: completeFetch(async (_url, init) => {
         const workspaceId = String(
           (init?.headers as Record<string, string>)?.['x-vela-workspace-id'],
         );
@@ -801,7 +802,7 @@ describe('startHubEventsSubscriber', () => {
           init?.signal,
           () => abortedScopes.push(workspaceId),
         );
-      },
+      }),
     });
 
     await first;
@@ -835,7 +836,7 @@ describe('startHubEventsSubscriber', () => {
         resolveReady();
       },
       onDrop: ({ reason }) => drops.push(reason),
-      fetchImpl: async () => sseResponse([COMMENT_EVENT, READY, COMMENT_EVENT], { holdOpen: true }),
+      fetchImpl: completeFetch(async () => sseResponse([COMMENT_EVENT, READY, COMMENT_EVENT], { holdOpen: true })),
     });
 
     await ready;
@@ -859,8 +860,8 @@ describe('startHubEventsSubscriber', () => {
       onDrop,
       onStateChange: (state) => states.push(state),
       backoffMinMs: 1_000_000,
-      fetchImpl: async () =>
-        sseResponse(['event: ready\ndata: {"workspaceId":"w2"}\n\n'], { holdOpen: true }),
+      fetchImpl: completeFetch(async () =>
+        sseResponse(['event: ready\ndata: {"workspaceId":"w2"}\n\n'], { holdOpen: true })),
     });
 
     await vi.waitFor(() => {
@@ -885,9 +886,9 @@ describe('startHubEventsSubscriber', () => {
       },
       onEvent: () => undefined,
       backoffMaxMs: 5,
-      fetchImpl: async () => {
+      fetchImpl: completeFetch(async () => {
         throw new Error('must not fetch');
-      },
+      }),
     });
     await new Promise((r) => setTimeout(r, 30));
     expect(resolved).toBeGreaterThanOrEqual(2);
@@ -909,7 +910,7 @@ describe('startHubEventsSubscriber', () => {
       onEvent: () => undefined,
       heartbeatTimeoutMs: 20,
       backoffMinMs: 1_000_000, // park after the abort so we observe exactly one cycle
-      fetchImpl: async (_url, init) => {
+      fetchImpl: completeFetch(async (_url, init) => {
         init?.signal?.addEventListener('abort', () => {
           if (!aborted) {
             aborted = true;
@@ -917,7 +918,7 @@ describe('startHubEventsSubscriber', () => {
           }
         });
         return sseResponse([READY], { holdOpen: true }); // then silence
-      },
+      }),
     });
 
     await abortedOnce;

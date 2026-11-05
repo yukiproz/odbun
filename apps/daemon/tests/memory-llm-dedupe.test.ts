@@ -1,6 +1,7 @@
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fetchMock } from './helpers/fetch-double.js';
 
 import {
   extractWithLLM,
@@ -36,7 +37,7 @@ function okResponse(): Response {
 }
 
 function mockOpenAiOk(): void {
-  globalThis.fetch = vi.fn(async () => okResponse()) as typeof fetch;
+  globalThis.fetch = fetchMock(async () => okResponse());
 }
 
 // Reduce a Claude stream-json transcript to the visible reply exactly the way
@@ -90,10 +91,10 @@ describe('memory-llm chat extraction: duplicate-turn gate + reply serialization'
   it('does NOT permanently skip a turn whose extraction failed (records only after success)', async () => {
     // First provider call fails (rate-limited / out of credits); second succeeds.
     let calls = 0;
-    globalThis.fetch = vi.fn(async () => {
+    globalThis.fetch = fetchMock(async () => {
       calls += 1;
       return calls === 1 ? new Response('upstream error', { status: 500 }) : okResponse();
-    }) as typeof fetch;
+    });
 
     const turn = { userMessage: 'Remember I ship on Fridays.', assistantMessage: 'Noted.' };
     const opts = { projectRoot: process.cwd(), conversationId: 'conv-2' };
