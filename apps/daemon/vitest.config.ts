@@ -31,6 +31,33 @@ const nodeHarnessExclusions: string[] = runningUnderBun
       ) as string[]
     ).map((entry) => `**/${entry}`);
 
+// Parked features: Vela (port record: port/TEST-SUITES.md §8,
+// port/port-items.json V1).
+//
+// Vela is upstream's team/cloud layer: an external CLI the daemon
+// shells out to via `src/integrations/vela-command.ts`, carrying the
+// collab adapters (`src/collab/vela-cli-*`), the AMR runtime binary,
+// and the login / billing / team-projects / share surfaces. Hadi's
+// decision (2026-11-06): odbun's scope is local/single-user web, so
+// the Vela integration is PARKED in this build — not removed. It is
+// rooted in 122 src files, so removal was rejected in favour of
+// parking: the production code stays in tree, untouched and dormant,
+// and only its test suites are excluded, on BOTH harnesses (unlike
+// the Node-only manifest above), via the committed manifest
+// `tests/parked-features.json` (name census of `tests/vela-*.test.ts`
+// plus a file-by-file subject census; regeneration notes in §8).
+// Exit condition: a future decision to carry team features unparks
+// Vela by deleting the manifest entries (and this block); no other
+// change is needed because the product code never left.
+const parkedFeatures: string[] = (
+  JSON.parse(
+    readFileSync(
+      new URL('./tests/parked-features.json', import.meta.url),
+      'utf8',
+    ),
+  ) as string[]
+).map((entry) => `**/${entry}`);
+
 // Vitest replaces its default `exclude` when one is configured, so the
 // upstream defaults are spelled out and the manifest extends them.
 const defaultExclude = [
@@ -63,7 +90,7 @@ export default defineConfig({
     // Keep files serial so fake agent binaries stay scoped to their tests.
     fileParallelism: false,
     include: ['tests/**/*.test.{ts,tsx,js,mjs,cjs}'],
-    exclude: [...defaultExclude, ...nodeHarnessExclusions],
+    exclude: [...defaultExclude, ...nodeHarnessExclusions, ...parkedFeatures],
     setupFiles: ['tests/setup.ts'],
     testTimeout: 20_000,
   },

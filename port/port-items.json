@@ -10,7 +10,8 @@
     "R2",
     "R3",
     "R4",
-    "R5"
+    "R5",
+    "V1"
   ],
   "patches": [
     {
@@ -82,6 +83,13 @@
       "status": "scaffold-optional",
       "summary": "Smoke/static-health probe via Bun.serve (runtime/http/bun-serve.ts). Full Express re-plumb is optional and must not gate R1-R4",
       "supersededBy": "n/a"
+    },
+    {
+      "file": "-",
+      "id": "V1",
+      "status": "parked",
+      "summary": "Vela team/cloud integration PARKED in the Bun build (Hadi, 2026-11-06): upstream's external team CLI (daemon shells out via src/integrations/vela-command.ts; collab adapters, AMR runtime binary, login/billing/team-projects/share) is not carried by odbun's local/single-user web scope. Its 73 test suites are excluded on BOTH harnesses via apps/daemon/tests/parked-features.json (wired in apps/daemon/vitest.config.ts); production code stays in tree, dormant and untouched — Vela is rooted in 122 src files, so removal was rejected in favour of parking. Census and borderline calls: port/TEST-SUITES.md §8",
+      "supersededBy": "a future decision to carry team features"
     }
   ],
   "version": 1,

@@ -104,6 +104,18 @@ this port's future. House rule so they stay cheap to keep:
 Desktop/Electron, packaged builds, upstream's own CI topology, and any
 Node-compat fallback lane.
 
+**Parked features — Vela (Hadi, 2026-11-06).** Upstream's team/cloud
+integration (the external Vela CLI: collab adapters, the AMR runtime
+binary, login/billing/team-projects/share) is not carried by odbun's
+local/single-user web scope. It is *parked*, not removed — the
+production code stays in tree, dormant and untouched (it is rooted in
+122 src files; removal was rejected), and only its test suites are
+excluded, on both CI tracks, via
+`apps/daemon/tests/parked-features.json`. Registered as item **V1**
+in `port/port-items.json`; census and rationale in
+`port/TEST-SUITES.md` §8. A future decision to carry team features
+unparks it by deleting the manifest entries.
+
 **Docker — drop only if it gets in the way (Hadi, 2026-11-05).** Bun
 itself is light enough that Docker support has no inherent value for
 odbun, but the inherited Docker files (`deploy/Dockerfile*`, compose
