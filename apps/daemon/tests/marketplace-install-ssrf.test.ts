@@ -31,6 +31,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { isBun } from './helpers/runtime.js';
+
 let daemon: http.Server | undefined;
 let daemonShutdown: (() => Promise<void> | void) | undefined;
 let baseUrl = '';
@@ -91,7 +93,13 @@ afterEach(async () => {
   else process.env.OD_DATA_DIR = PREV_DATA_DIR;
 }, 15000);
 
-describe('marketplace / plugin-install SSRF', () => {
+// Bun-only code path: the shared beforeEach boots the real daemon
+// in-process (dynamic import of ../src/server.js) before every test —
+// including the sibling-guard test, whose own import is DB-free — and
+// that chain reaches src/db.ts → bun:sqlite, so under the Node harness
+// each test fails with `Cannot find package 'bun:sqlite'`. The suite
+// runs on the Bun track. See port/TEST-SUITES.md §4.1.
+describe.skipIf(!isBun)('marketplace / plugin-install SSRF', () => {
   it('POST /api/marketplaces must NOT fetch a loopback/internal https URL', async () => {
     const canaryUrl = `https://127.0.0.1:${canaryPort}/latest/meta-data/`;
     // No Origin header → the /api origin middleware treats it as a non-browser

@@ -8,6 +8,7 @@ import {
   AgentCompanionSetupError,
   installDeepSeekHarnessCompanion,
 } from '../src/agent-companion-setup.js';
+import { isBun } from './helpers/runtime.js';
 
 const roots: string[] = [];
 const originalDshBin = process.env.DSH_BIN;
@@ -118,7 +119,14 @@ async function expectSetupError(promise: Promise<unknown>, code: AgentCompanionS
 }
 
 describe('DeepSeek Harness companion setup', () => {
-  it('installs into an empty profile and is idempotent', async () => {
+  // Bun-only code path: tests that reach the install step run it through
+  // execAgentFile → execFileBun in-process (src/runtimes/invocation.ts),
+  // which throws `Bun is not defined` under the Node harness; the setup
+  // classifies that as COMPANION_INSTALL_FAILED. Those tests are guarded
+  // with it.skipIf(!isBun) and run on the Bun track. The two tests that
+  // reject before the install call (corrupt bundle, absent dsh) run on
+  // both tracks. See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('installs into an empty profile and is idempotent', async () => {
     const test = await fixture();
     const first = await installDeepSeekHarnessCompanion(test.options);
     expect(first).toMatchObject({ action: 'installed', ok: true, packageVersion: '0.1.0' });
@@ -129,7 +137,7 @@ describe('DeepSeek Harness companion setup', () => {
     await expect(readFile(test.stateFile, 'utf8')).resolves.toBe('1');
   });
 
-  it('reports repaired only when a profile existed before setup', async () => {
+  it.skipIf(!isBun)('reports repaired only when a profile existed before setup', async () => {
     const test = await fixture({ existingProfile: true });
     await expect(installDeepSeekHarnessCompanion(test.options)).resolves.toMatchObject({
       action: 'repaired',
@@ -158,7 +166,7 @@ describe('DeepSeek Harness companion setup', () => {
     await expect(readFile(test.stateFile, 'utf8')).rejects.toThrow();
   });
 
-  it('classifies install and post-install probe failures', async () => {
+  it.skipIf(!isBun)('classifies install and post-install probe failures', async () => {
     const installFailure = await fixture();
     process.env.OD_DSH_SETUP_FAKE_MODE = 'install-fail';
     await expectSetupError(
@@ -174,7 +182,7 @@ describe('DeepSeek Harness companion setup', () => {
     );
   });
 
-  it('keeps the bundled package path out of the dsh Windows shell boundary', async () => {
+  it.skipIf(!isBun)('keeps the bundled package path out of the dsh Windows shell boundary', async () => {
     const test = await fixture();
     process.env.OD_DSH_SETUP_FAKE_MODE = 'require-profile-bundle';
 
@@ -184,7 +192,7 @@ describe('DeepSeek Harness companion setup', () => {
     });
   });
 
-  it('deduplicates concurrent setup requests', async () => {
+  it.skipIf(!isBun)('deduplicates concurrent setup requests', async () => {
     const test = await fixture();
     const first = installDeepSeekHarnessCompanion(test.options);
     const second = installDeepSeekHarnessCompanion(test.options);
