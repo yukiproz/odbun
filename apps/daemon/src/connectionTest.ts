@@ -583,6 +583,43 @@ function socksProxyUrl(proxyUrl: string | undefined): string | undefined {
  * dispatcher resources. When `targetUrl` is known, a NO_PROXY match
  * drops the proxy for that request, mirroring the old per-URL dispatch.
  */
+/**
+ * Make a proxy-bypass decision stick under Bun's native fetch.
+ *
+ * An init without `proxy` does NOT mean "direct" under Bun: fetch falls
+ * back to the process-env proxies (HTTP_PROXY / HTTPS_PROXY), and
+ * neither `proxy: ''` nor `proxy: null` disables that fallback — so the
+ * per-URL bypass resolved in this module (e.g. a loopback provider
+ * probe while the daemon env carries a proxy and no NO_PROXY) would be
+ * silently overridden and the probe routed through the proxy anyway.
+ * Bun does honour NO_PROXY from the process env per request, so merge
+ * the token list this resolution already computed (operator tokens +
+ * loopback defaults) into both casings of the process env. The merge
+ * is additive and idempotent — tokens are only ever added — and it
+ * encodes exactly the invariant `mergeNoProxyWithLoopbackDefaults`
+ * documents. Node's fetch never reads env proxies, so this is a no-op
+ * there and is gated on the Bun runtime.
+ */
+function ensureBunFetchHonoursBypass(noProxy: string | null): void {
+  if (!noProxy || noProxy === '*') return;
+  if (typeof (globalThis as { Bun?: unknown }).Bun === 'undefined') return;
+  const wanted = noProxy
+    .split(/[\s,]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (wanted.length === 0) return;
+  for (const key of ['NO_PROXY', 'no_proxy'] as const) {
+    const existing = (process.env[key] ?? '')
+      .split(/[\s,]+/)
+      .map((token) => token.trim())
+      .filter(Boolean);
+    const seen = new Set(existing.map((token) => token.toLowerCase()));
+    const additions = wanted.filter((token) => !seen.has(token.toLowerCase()));
+    if (additions.length === 0) continue;
+    process.env[key] = [...existing, ...additions].join(',');
+  }
+}
+
 export function proxyDispatcherRequestInit(
   env: NodeJS.ProcessEnv = process.env,
   _options: ConnectionTestProxyOptions = {},
@@ -592,7 +629,12 @@ export function proxyDispatcherRequestInit(
   requestInit: ProxyRequestInit;
 } {
   const { proxy, noProxy } = resolveConnectionTestProxy(env);
-  if (!proxy || (targetUrl !== undefined && shouldBypassProxyForUrl(targetUrl, noProxy))) {
+  const bypassed =
+    proxy !== null &&
+    targetUrl !== undefined &&
+    shouldBypassProxyForUrl(targetUrl, noProxy);
+  if (!proxy || bypassed) {
+    if (bypassed) ensureBunFetchHonoursBypass(noProxy);
     return {
       async close() {},
       requestInit: {},
@@ -952,20 +994,38 @@ function extractProviderErrorDetail(data: unknown, rawText: string): string {
  * The cause code is an OpenSSL/libuv constant, never user content, so appending
  * it is safe; the message still goes through `redactSecrets`.
  */
+/**
+ * The network error code behind a fetch failure, across runtimes.
+ *
+ * Node's fetch (undici) surfaces DNS/TLS/connect failures as a
+ * `TypeError` whose `cause.code` carries the libuv/OpenSSL constant.
+ * Bun's fetch carries no `cause.code`; the same constant is the
+ * message's leading token instead ("ECONNREFUSED: Unable to connect.
+ * Is the computer able to access the url?"). Read both shapes so a
+ * failure classifies identically on either runtime.
+ */
+function networkErrorCode(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const causeCode = (err as { cause?: { code?: unknown } }).cause?.code;
+  if (typeof causeCode === 'string' && causeCode) return causeCode;
+  const match = /^([A-Z][A-Z0-9_]{2,}):/.exec(err.message);
+  return match?.[1];
+}
+
 function networkErrorDetail(err: unknown, secrets: (string | undefined)[]): string {
   const message = redactSecrets(err instanceof Error ? err.message : String(err), secrets);
-  const code = (err as { cause?: { code?: unknown } } | null | undefined)?.cause?.code;
-  if (typeof code !== 'string' || !code) return message;
+  const code = networkErrorCode(err);
+  if (!code) return message;
   return message.includes(code) ? message : `${message} (${code})`;
 }
 
 function networkErrorToKind(err: unknown): ConnectionTestKind {
   if (err instanceof Error) {
     if (err.name === 'AbortError') return 'timeout';
-    // fetch's TypeError surface for DNS/TLS/connect failures is
-    // `TypeError` with a `cause` whose `code` is one of these.
-    const cause = (err as { cause?: { code?: string } }).cause;
-    const code = cause?.code;
+    // fetch's TypeError surface for DNS/TLS/connect failures carries
+    // a `code` (on `cause` under Node, in the message under Bun — see
+    // networkErrorCode) that is one of these.
+    const code = networkErrorCode(err);
     if (
       code === 'ENOTFOUND' ||
       code === 'EAI_AGAIN' ||

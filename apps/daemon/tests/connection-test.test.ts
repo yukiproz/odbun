@@ -129,7 +129,18 @@ async function withOnlyFakeAgent<T>(
       );
     } else {
       const bin = path.join(dir, binName);
-      await fsp.writeFile(bin, `#!/usr/bin/env node\n${script}`);
+      // This sandbox strips PATH down to the fake's own directory and
+      // scopes toolchain discovery to the fake home (OD_AGENT_HOME), so
+      // the only interpreter production guarantees on the child PATH is
+      // the daemon runtime's own — applyAgentLaunchEnv prepends
+      // dirname(process.execPath) precisely so shebang interpreters
+      // resolve. Write the fake for that interpreter ('node' under the
+      // Node harness, 'bun' under the Bun harness) instead of
+      // hardcoding node, which a Bun-runtime daemon cannot conjure
+      // into a stripped PATH. The script body is plain CommonJS over
+      // node: builtins, which both runtimes execute.
+      const interpreter = path.basename(process.execPath);
+      await fsp.writeFile(bin, `#!/usr/bin/env ${interpreter}\n${script}`);
       await fsp.chmod(bin, 0o755);
     }
     process.env.PATH = dir;

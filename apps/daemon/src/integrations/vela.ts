@@ -437,12 +437,25 @@ export function mergeVelaEnv(
   });
 }
 
+function homeDirForEnv(env: NodeJS.ProcessEnv): string {
+  // The env argument is the authoritative merged environment for this
+  // resolution, so prefer its HOME (USERPROFILE on Windows) over
+  // os.homedir(). Node's homedir() happens to follow process.env.HOME,
+  // but Bun's returns the startup account home and ignores the env, so
+  // anchoring config resolution to homedir() silently reads a different
+  // account's file under the Bun runtime whenever a caller scopes HOME
+  // through the env it passes (AMR endpoint bindings, tests, packaged
+  // launches). Fall back to homedir() only when the env carries neither.
+  const fromEnv = env.HOME?.trim() || env.USERPROFILE?.trim();
+  return fromEnv || homedir();
+}
+
 function configDir(env: NodeJS.ProcessEnv = process.env): string {
   const amrHome = (readAmrEndpointBinding(env) ? applyAmrEndpointBinding(env).AMR_HOME : env.AMR_HOME)?.trim();
-  if (amrHome === '~') return homedir();
-  if (amrHome?.startsWith('~/')) return path.join(homedir(), amrHome.slice(2));
+  if (amrHome === '~') return homeDirForEnv(env);
+  if (amrHome?.startsWith('~/')) return path.join(homeDirForEnv(env), amrHome.slice(2));
   if (amrHome) return amrHome;
-  return path.join(homedir(), '.amr');
+  return path.join(homeDirForEnv(env), '.amr');
 }
 
 export function amrConfigPath(env: NodeJS.ProcessEnv = process.env): string {
