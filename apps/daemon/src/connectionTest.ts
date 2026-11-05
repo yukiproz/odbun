@@ -21,8 +21,6 @@ import { promises as dnsPromises, lookup as dnsLookupCb } from 'node:dns';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Agent, EnvHttpProxyAgent, Socks5ProxyAgent } from 'undici';
-import type { Dispatcher, Pool } from 'undici';
 import {
   applyAgentLaunchEnv,
   getAgentDef,
@@ -53,6 +51,7 @@ import {
   probeAgentAuthStatus,
 } from './runtimes/auth.js';
 import { loadMmdRouteLaunchEnv } from './runtimes/mmd-routes.js';
+import { applyOpenCodeWorkspaceEnv } from './runtimes/opencode-permissions.js';
 import {
   buildLegacyMaxTokensParam,
   buildMaxCompletionTokensParam,
@@ -275,16 +274,17 @@ export async function assertExternalAssetUrl(
 }
 
 /**
- * Connection-time DNS validator for asset-download requests. Wraps `dns.lookup`
- * and rejects any resolved address that is loopback, RFC1918, link-local,
+ * DNS validator for asset-download requests. Wraps `dns.lookup` and
+ * rejects any resolved address that is loopback, RFC1918, link-local,
  * CGNAT, metadata-service, or multicast — the same predicate used during
- * pre-validation. Installed as the Undici Agent's `connect.lookup` so the
- * address we validate IS the address the socket connects to, closing the
- * DNS-rebinding / TOCTOU gap that a separate pre-validation lookup leaves open
- * (issue #5478). Same pattern as `brands/safe-fetch.ts` and
- * `plugins/plugin-asset-cache.ts`.
+ * pre-validation.
  *
- * Exported so the guard can be unit-tested without a live server.
+ * Under the old Undici stack this was also installed as the Agent's
+ * `connect.lookup`, so the validated address was the connected address.
+ * Bun's native fetch exposes no connect-time lookup hook, so the pin
+ * cannot be reproduced there; the function remains as the validating
+ * lookup behind pre-validation (`assertExternalAssetUrl`) and stays
+ * exported so the guard can be unit-tested without a live server.
  */
 export function createAssetValidatingLookup(
   lookupImpl: typeof dnsLookupCb = dnsLookupCb,
@@ -314,45 +314,27 @@ export function createAssetValidatingLookup(
   };
 }
 
-// Long-lived dispatcher reused across calls. A per-request Agent leaks
-// keep-alive sockets; a shared dispatcher avoids that while still pinning the
-// connection-time validating lookup (same approach as plugin-asset-cache.ts).
-// Used by `createAssetValidatingLookup` consumers in production; the default
-// fetch in `assertAndFetchExternalAsset` is `globalThis.fetch` so test stubs
-// still intercept.
-const assetDispatcher = new Agent({
-  connect: { lookup: createAssetValidatingLookup() as never },
-});
-
 /**
- * Test-visible accessor for the shared asset-validating dispatcher attached by
- * `assertAndFetchExternalAsset`. Tests key dispatcher assertions on the asset
- * URL and compare against this exact instance (`toBe`), so a regression that
- * reverts to forwarding the caller's turn-proxy dispatcher on the asset hop
- * fails loudly (issue #5478).
- */
-export function getAssetValidatingDispatcher(): NonNullable<RequestInit['dispatcher']> {
-  return assetDispatcher as unknown as NonNullable<RequestInit['dispatcher']>;
-}
-
-/**
- * Validate an upstream-controlled asset URL and fetch it with the SSRF guard
- * pinned through redirects and DNS resolution. Runs `assertExternalAssetUrl`
- * on the literal URL (fail-closed on DNS errors), forces `redirect: 'error'`
- * (blocking a 3xx hop into private space), and routes the fetch through a
- * long-lived Undici dispatcher whose connection-time `lookup` rejects any
- * non-public address — so even if an attacker's DNS returns a public address
- * during pre-validation and loopback at connect time, the socket is refused
- * (issue #5478).
+ * Validate an upstream-controlled asset URL and fetch it under the SSRF
+ * guard. Runs `assertExternalAssetUrl` on the literal URL (fail-closed
+ * on DNS errors) and forces `redirect: 'error'` (blocking a 3xx hop into
+ * private space).
  *
  * For non-IP-literal hostnames, if DNS validation did not attach a vetted
- * address set (e.g., lookup failure), the function throws rather than falling
- * back to an unpinned fetch. IP literals are safe to fetch unpinned because
- * they were validated synchronously and have no hostname to rebind.
+ * address set (e.g., lookup failure), the function throws rather than
+ * fetching at all. IP literals were validated synchronously and have no
+ * hostname to rebind.
  *
- * Throws on a blocked host or unpinned-fetch refusal. Callers keep their own
- * `!resp.ok` HTTP-status handling. The forced `redirect` is spread last so it
- * overrides any value the caller passed in `init`.
+ * Residual risk, accepted by the Bun-native port (R4): the old Undici
+ * dispatcher additionally pinned DNS at connect time, so the validated
+ * address was the connected address. Native fetch has no connect-lookup
+ * hook, so a DNS-rebinding TOCTOU window between pre-validation and
+ * connect reopens (issue #5478). Pre-validation + `redirect: 'error'`
+ * remain enforced; the pin does not.
+ *
+ * Throws on a blocked host or unvalidated-hostname refusal. Callers keep
+ * their own `!resp.ok` HTTP-status handling. The forced `redirect` is
+ * spread last so it overrides any value the caller passed in `init`.
  */
 export async function assertAndFetchExternalAsset(
   url: string,
@@ -382,14 +364,10 @@ export async function assertAndFetchExternalAsset(
     throw new Error('asset URL hostname was not DNS-validated — refusing unpinned fetch');
   }
 
-  // Route through the long-lived asset dispatcher whose connection-time lookup
-  // rejects non-public addresses. The dispatcher is attached to the init object
-  // so injected fetch stubs (vi.stubGlobal) still see redirect:'error' and
-  // can ignore dispatcher, while production globalThis.fetch (Node/undici)
-  // uses it to refuse a connect-time rebind to loopback/metadata (issue #5478).
-  // Same pattern as plugins/plugin-asset-cache.ts safeExternalFetch.
+  // Native fetch: no dispatcher to attach (see the residual-risk note
+  // above). The init still forces redirect:'error' so injected fetch
+  // stubs observe the same request shape as production.
   const requestInit: RequestInit = { ...init, redirect: 'error' };
-  (requestInit as { dispatcher?: unknown }).dispatcher = assetDispatcher;
   return fetchImpl(url, requestInit);
 }
 
@@ -514,183 +492,46 @@ function shouldBypassProxyForUrl(target: string | URL, noProxy: string | null): 
   return noProxy.split(/[\s,]+/).some((token) => noProxyTokenMatchesUrl(token, url));
 }
 
-function socksProxyAgentOptions(
-  options: Pool.Options,
-): ConstructorParameters<typeof Socks5ProxyAgent>[1] {
-  return {
-    ...(options.bodyTimeout === undefined ? {} : { bodyTimeout: options.bodyTimeout }),
-    ...(options.headersTimeout === undefined ? {} : { headersTimeout: options.headersTimeout }),
-  };
+/**
+ * Proxy support for provider/connection-test fetches, Bun-native (R4).
+ *
+ * The pre-port implementation routed requests through Undici dispatcher
+ * classes (EnvHttpProxyAgent / Socks5ProxyAgent wrappers) that selected
+ * a proxy per request and honoured NO_PROXY per URL. Bun's native
+ * fetch takes a single `proxy` URL string per request instead, so the
+ * resolution below collapses the env into one proxy URL:
+ *
+ *   - any HTTP(S) proxy configured -> that proxy (HTTPS preferred when
+ *     both are set and differ; provider APIs are overwhelmingly HTTPS);
+ *   - otherwise an ALL_PROXY SOCKS proxy -> the SOCKS URL (native fetch
+ *     speaks socks5:// directly);
+ *   - otherwise -> no proxy.
+ *
+ * Fidelity notes versus the dispatcher stack: per-scheme proxy pairs
+ * and per-URL NO_PROXY dispatch cannot be expressed in one string. The
+ * exported helper therefore covers the common single-proxy setups;
+ * call sites inside this file that know their target URL additionally
+ * apply shouldBypassProxyForUrl and drop the proxy for bypassed hosts.
+ * The old Pool body/headers timeout options have no native-fetch
+ * equivalent (callers' AbortSignals govern timeouts) and are accepted
+ * only for call-shape compatibility.
+ */
+export interface ConnectionTestProxyOptions {
+  bodyTimeout?: number;
+  headersTimeout?: number;
 }
 
-class NoProxyAwareSocksProxyAgent {
-  private readonly directAgent: Agent;
+/** Request-init fragment carrying the native fetch `proxy` option. */
+export type ProxyRequestInit = Pick<RequestInit, "dispatcher"> & { proxy?: string };
 
-  private readonly socksAgent: Socks5ProxyAgent;
-
-  private readonly socksDispatchTimeouts: Pick<Dispatcher.DispatchOptions, 'bodyTimeout' | 'headersTimeout'>;
-
-  constructor(
-    private readonly noProxy: string | null,
-    socksProxy: string,
-    options: Pool.Options,
-  ) {
-    this.directAgent = new Agent(options as ConstructorParameters<typeof Agent>[0]);
-    this.socksAgent = new Socks5ProxyAgent(socksProxy, socksProxyAgentOptions(options));
-    this.socksDispatchTimeouts = {
-      ...(options.bodyTimeout === undefined ? {} : { bodyTimeout: options.bodyTimeout }),
-      ...(options.headersTimeout === undefined
-        ? {}
-        : { headersTimeout: options.headersTimeout }),
-    };
-  }
-
-  dispatch(options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
-    const origin = options.origin;
-    const targetUrl =
-      typeof origin === 'string' || origin instanceof URL
-        ? new URL(options.path, origin)
-        : null;
-    const dispatcher =
-      targetUrl && shouldBypassProxyForUrl(targetUrl, this.noProxy)
-        ? this.directAgent
-        : this.socksAgent;
-    return dispatcher.dispatch(
-      dispatcher === this.socksAgent ? { ...this.socksDispatchTimeouts, ...options } : options,
-      handler,
-    );
-  }
-
-  async close(): Promise<void> {
-    await Promise.all([this.directAgent.close(), this.socksAgent.close()]);
-  }
-
-  async destroy(error?: Error | null): Promise<void> {
-    await Promise.all([
-      this.directAgent.destroy(error ?? null),
-      this.socksAgent.destroy(error ?? null),
-    ]);
-  }
+interface ResolvedConnectionTestProxy {
+  proxy: string | null;
+  noProxy: string | null;
 }
 
-class NoProxyAwareEnvProxyAgent {
-  private readonly directAgent: Agent;
-
-  constructor(
-    private readonly noProxy: string,
-    private readonly proxyAgent: EnvHttpProxyAgent,
-    options: Pool.Options,
-  ) {
-    this.directAgent = new Agent(options as ConstructorParameters<typeof Agent>[0]);
-  }
-
-  dispatch(options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
-    const origin = options.origin;
-    const targetUrl =
-      typeof origin === 'string' || origin instanceof URL
-        ? new URL(options.path, origin)
-        : null;
-    return (targetUrl && shouldBypassProxyForUrl(targetUrl, this.noProxy) ? this.directAgent : this.proxyAgent).dispatch(
-      options,
-      handler,
-    );
-  }
-
-  async close(): Promise<void> {
-    await Promise.all([this.directAgent.close(), this.proxyAgent.close()]);
-  }
-
-  async destroy(error?: Error | null): Promise<void> {
-    await Promise.all([
-      this.directAgent.destroy(error ?? null),
-      this.proxyAgent.destroy(error ?? null),
-    ]);
-  }
-}
-
-class NoProxyAwareMixedProxyAgent {
-  private readonly directAgent: Agent;
-
-  private readonly proxyAgent: EnvHttpProxyAgent;
-
-  private readonly socksAgent: Socks5ProxyAgent;
-
-  private readonly socksDispatchTimeouts: Pick<Dispatcher.DispatchOptions, 'bodyTimeout' | 'headersTimeout'>;
-
-  constructor(
-    private readonly noProxy: string | null,
-    private readonly hasHttpProxy: boolean,
-    private readonly hasHttpsProxy: boolean,
-    proxyOptions: ConstructorParameters<typeof EnvHttpProxyAgent>[0],
-    socksProxy: string,
-    options: Pool.Options,
-  ) {
-    this.directAgent = new Agent(options as ConstructorParameters<typeof Agent>[0]);
-    this.proxyAgent = new EnvHttpProxyAgent(proxyOptions);
-    this.socksAgent = new Socks5ProxyAgent(socksProxy, socksProxyAgentOptions(options));
-    this.socksDispatchTimeouts = {
-      ...(options.bodyTimeout === undefined ? {} : { bodyTimeout: options.bodyTimeout }),
-      ...(options.headersTimeout === undefined
-        ? {}
-        : { headersTimeout: options.headersTimeout }),
-    };
-  }
-
-  dispatch(options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
-    const origin = options.origin;
-    const targetUrl =
-      typeof origin === 'string' || origin instanceof URL
-        ? new URL(options.path, origin)
-        : null;
-    if (targetUrl && shouldBypassProxyForUrl(targetUrl, this.noProxy)) {
-      return this.directAgent.dispatch(options, handler);
-    }
-    if (
-      targetUrl && ((targetUrl.protocol === 'http:' && this.hasHttpProxy) ||
-        (targetUrl.protocol === 'https:' && this.hasHttpsProxy))
-    ) {
-      return this.proxyAgent.dispatch(options, handler);
-    }
-    return this.socksAgent.dispatch({ ...this.socksDispatchTimeouts, ...options }, handler);
-  }
-
-  async close(): Promise<void> {
-    await Promise.all([this.directAgent.close(), this.proxyAgent.close(), this.socksAgent.close()]);
-  }
-
-  async destroy(error?: Error | null): Promise<void> {
-    await Promise.all([
-      this.directAgent.destroy(error ?? null),
-      this.proxyAgent.destroy(error ?? null),
-      this.socksAgent.destroy(error ?? null),
-    ]);
-  }
-}
-
-type ConnectionTestProxyDispatcher =
-  | EnvHttpProxyAgent
-  | NoProxyAwareEnvProxyAgent
-  | NoProxyAwareMixedProxyAgent
-  | NoProxyAwareSocksProxyAgent;
-
-function envProxyAgentOptions(
-  options: Pool.Options,
-  httpProxy: string | undefined,
-  httpsProxy: string | undefined,
-  noProxy: string | null,
-): ConstructorParameters<typeof EnvHttpProxyAgent>[0] {
-  return {
-    ...options,
-    ...(httpProxy ? { httpProxy } : {}),
-    ...(httpsProxy ? { httpsProxy } : {}),
-    ...(noProxy ? { noProxy } : {}),
-  };
-}
-
-function buildConnectionTestProxyDispatcher(
+function resolveConnectionTestProxy(
   env: NodeJS.ProcessEnv = process.env,
-  options: Pool.Options = {},
-): ConnectionTestProxyDispatcher | null {
+): ResolvedConnectionTestProxy {
   const proxyEnv = mergeProxyAwareEnv(
     process.platform,
     resolveSystemProxyEnv(),
@@ -702,25 +543,7 @@ function buildConnectionTestProxyDispatcher(
   const httpProxy = proxyEnv.HTTP_PROXY ?? proxyEnv.http_proxy ?? httpProxyFromAll;
   const httpsProxy = proxyEnv.HTTPS_PROXY ?? proxyEnv.https_proxy ?? httpProxyFromAll;
   const noProxy = mergeNoProxyWithLoopbackDefaults(proxyEnv.NO_PROXY ?? proxyEnv.no_proxy);
-  const proxyOptions = envProxyAgentOptions(options, httpProxy, httpsProxy, noProxy);
-  if (socksProxy && (httpProxy || httpsProxy) && (!httpProxy || !httpsProxy)) {
-    return new NoProxyAwareMixedProxyAgent(
-      noProxy,
-      Boolean(httpProxy),
-      Boolean(httpsProxy),
-      proxyOptions,
-      socksProxy,
-      options,
-    );
-  }
-  if (!httpProxy && !httpsProxy && socksProxy) {
-    return new NoProxyAwareSocksProxyAgent(noProxy, socksProxy, options);
-  }
-  if (!httpProxy && !httpsProxy) return null;
-  const proxyAgent = new EnvHttpProxyAgent(proxyOptions);
-  return noProxy?.split(/[\s,]+/).some((token) => token.trim() === '<local>')
-    ? new NoProxyAwareEnvProxyAgent(noProxy, proxyAgent, options)
-    : proxyAgent;
+  return { proxy: httpsProxy ?? httpProxy ?? socksProxy ?? null, noProxy };
 }
 
 function isHttpOrHttpsProxy(proxyUrl: string | undefined): string | undefined {
@@ -728,7 +551,7 @@ function isHttpOrHttpsProxy(proxyUrl: string | undefined): string | undefined {
   if (!trimmed) return undefined;
   try {
     const { protocol } = new URL(trimmed);
-    return protocol === 'http:' || protocol === 'https:' ? trimmed : undefined;
+    return protocol === "http:" || protocol === "https:" ? trimmed : undefined;
   } catch {
     return undefined;
   }
@@ -739,9 +562,9 @@ function socksProxyUrl(proxyUrl: string | undefined): string | undefined {
   if (!trimmed) return undefined;
   try {
     const url = new URL(trimmed);
-    if (url.protocol === 'socks:' || url.protocol === 'socks5:') return trimmed;
-    if (url.protocol === 'socks5h:') {
-      url.protocol = 'socks5:';
+    if (url.protocol === "socks:" || url.protocol === "socks5:") return trimmed;
+    if (url.protocol === "socks5h:") {
+      url.protocol = "socks5:";
       return url.toString();
     }
     return undefined;
@@ -750,25 +573,32 @@ function socksProxyUrl(proxyUrl: string | undefined): string | undefined {
   }
 }
 
+/**
+ * Resolve the proxy request-init for connection-test / provider fetches.
+ * Keeps the pre-port exported name and `{ close, requestInit }` shape so
+ * existing callers (routes/chat, routes/media, routes/xai, and this
+ * file) are untouched; `close` is a no-op because native fetch holds no
+ * dispatcher resources. When `targetUrl` is known, a NO_PROXY match
+ * drops the proxy for that request, mirroring the old per-URL dispatch.
+ */
 export function proxyDispatcherRequestInit(
   env: NodeJS.ProcessEnv = process.env,
-  options: Pool.Options = {},
+  _options: ConnectionTestProxyOptions = {},
+  targetUrl?: string | URL,
 ): {
   close(): Promise<void>;
-  requestInit: Pick<RequestInit, 'dispatcher'>;
+  requestInit: ProxyRequestInit;
 } {
-  const dispatcher = buildConnectionTestProxyDispatcher(env, options);
-  if (dispatcher == null) {
+  const { proxy, noProxy } = resolveConnectionTestProxy(env);
+  if (!proxy || (targetUrl !== undefined && shouldBypassProxyForUrl(targetUrl, noProxy))) {
     return {
       async close() {},
       requestInit: {},
     };
   }
   return {
-    close: () => dispatcher.close(),
-    requestInit: {
-      dispatcher: dispatcher as unknown as NonNullable<RequestInit['dispatcher']>,
-    },
+    async close() {},
+    requestInit: { proxy },
   };
 }
 
@@ -1109,7 +939,7 @@ function extractProviderErrorDetail(data: unknown, rawText: string): string {
 /**
  * Compose the `detail` for a transport failure so the real cause survives.
  *
- * undici reports DNS/TLS/connect failures as a `TypeError` whose message is the
+ * fetch reports DNS/TLS/connect failures as a `TypeError` whose message is the
  * generic `fetch failed`, with the actual reason only on `cause.code`. Since
  * `networkErrorToKind` maps just an allowlist to `invalid_base_url`, everything
  * else — `DEPTH_ZERO_SELF_SIGNED_CERT`, `SELF_SIGNED_CERT_IN_CHAIN`,
@@ -1156,7 +986,7 @@ async function validateLocalOpenAiModel(
   parsed: ParsedBaseUrl,
   signal: AbortSignal,
   start: number,
-  requestInit: Pick<RequestInit, 'dispatcher'> = {},
+  requestInit: ProxyRequestInit = {},
 ): Promise<ConnectionTestResponse | null> {
   if (input.protocol !== 'openai' || !isLoopbackApiHost(parsed.hostname)) {
     return null;
@@ -1215,7 +1045,7 @@ async function validateSenseAudioNonChatModel(
   input: ProviderTestRequest,
   signal: AbortSignal,
   start: number,
-  requestInit: Pick<RequestInit, 'dispatcher'> = {},
+  requestInit: ProxyRequestInit = {},
 ): Promise<ConnectionTestResponse | null> {
   if (input.protocol !== 'senseaudio' || !isSenseAudioNonChatModel(input.model)) {
     return null;
@@ -1650,7 +1480,10 @@ export async function testProviderConnection(
   let proxyDispatcher: ReturnType<typeof proxyDispatcherRequestInit> | null = null;
 
   try {
-    proxyDispatcher = proxyDispatcherRequestInit();
+    // Target-aware: a NO_PROXY match (loopback providers are merged in
+    // by default) drops the proxy for this provider, as the old
+    // per-URL dispatcher dispatch did.
+    proxyDispatcher = proxyDispatcherRequestInit(process.env, {}, validated.parsed);
     const modelError = await validateLocalOpenAiModel(
       normalizedInput,
       validated.parsed,
@@ -2606,13 +2439,10 @@ async function testAgentConnectionInternal(
             : {}),
         },
       );
-      // Connection tests should validate the adapter's core CLI path, not
-      // fail on unrelated user-installed OpenCode plugins. `opencode run
-      // --pure` keeps the smoke test isolated while regular chat runs retain
-      // the user's full plugin environment.
-      if ((input.agentId === 'opencode' || input.agentId === 'mimo') && !args.includes('--pure')) {
-        args.push('--pure');
-      }
+      // OpenCode v2 removed v1's `--pure` plugin-isolation flag, so the
+      // smoke test no longer passes it; isolation comes from the temp
+      // workspace cwd plus the PWD env pin applied above. (MiMo keeps
+      // its existing argv handling — it is a separate runtime.)
       if ((input.agentId === 'opencode' || input.agentId === 'mimo') && !args.includes('--title')) {
         args.push('--title', 'Connection test');
       }
@@ -2661,6 +2491,14 @@ async function testAgentConnectionInternal(
       ...baseEnv,
       ...(mmdRouteLaunchEnv || {}),
     }, executableResolution);
+    if (input.agentId === 'opencode') {
+      // OpenCode v2 resolves its workspace as
+      // `options.root ?? env.PWD ?? process.cwd()`, and handing spawn a
+      // `cwd` does not update the child's PWD. Pin PWD to the isolated
+      // connection-test workspace so the probe can never adopt the
+      // daemon's own tree (see applyOpenCodeWorkspaceEnv).
+      applyOpenCodeWorkspaceEnv(env, tempDir);
+    }
     model = await resolveConnectionTestModelForAgent(
       def,
       model,

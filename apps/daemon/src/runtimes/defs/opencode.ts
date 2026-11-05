@@ -1,8 +1,10 @@
-import { DEFAULT_MODEL_OPTION } from './shared.js';
+import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { DEFAULT_MODEL_OPTION, execAgentFile } from './shared.js';
 import {
   OPENCODE_PERMISSION_CAPABILITY,
   appendOpenCodePermissionBypass,
-  appendOpenCodeWorkspaceDir,
 } from '../opencode-permissions.js';
 import { getRememberedLiveModels } from '../models.js';
 import type { RuntimeAgentDef, RuntimeModelOption } from '../types.js';
@@ -64,9 +66,12 @@ function parseVerboseModelMetadata(
 }
 
 /**
- * Parse `opencode models --verbose`, retaining each model's exact variant
- * names. Plain one-id-per-line output remains accepted as a compatibility
- * fallback, but only verbose metadata can advertise reasoning choices.
+ * Parse `opencode models` output. OpenCode v2 prints one `provider/model`
+ * id per line and no variant metadata, so this parse can only ever produce
+ * plain ids; reasoning variants are discovered separately by
+ * {@link fetchOpenCodeModels} from the v2 server API and merged in. (A
+ * verbose JSON block after an id is still tolerated if a build emits one,
+ * but nothing in v2 does.)
  */
 export function parseOpenCodeModels(stdout: string): RuntimeModelOption[] | null {
   const lines = String(stdout || '').split('\n');
@@ -96,6 +101,167 @@ export function parseOpenCodeModels(stdout: string): RuntimeModelOption[] | null
   return models.length > 1 ? models : null;
 }
 
+/**
+ * Parse the v2 server API's `GET /api/model` payload (`Model.Info[]`).
+ * Each entry carries its reasoning `variants` — the data the v2 CLI's
+ * plain `models` listing no longer prints, and the only source from
+ * which the picker can offer reasoning choices. Entry ids may be bare
+ * model ids with a separate provider field, or already-qualified
+ * `provider/model` ids; both are normalised to the qualified form the
+ * rest of the daemon uses. Unknown shapes yield `null`, never a throw.
+ */
+export function parseOpenCodeModelInfo(payload: unknown): RuntimeModelOption[] | null {
+  const entries: unknown[] = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)
+      ? (payload as { data: unknown[] }).data
+      : payload && typeof payload === 'object'
+        ? Object.values(payload as Record<string, unknown>)
+        : [];
+  const models: RuntimeModelOption[] = [DEFAULT_MODEL_OPTION];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    const rawId = typeof record.id === 'string' ? record.id.trim() : '';
+    if (!rawId) continue;
+    const provider = [record.providerID, record.providerId, record.provider]
+      .find((value): value is string => typeof value === 'string' && value.length > 0);
+    const id = rawId.includes('/') ? rawId : provider ? `${provider}/${rawId}` : rawId;
+    if (!OPENCODE_MODEL_ID.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    const rawVariants = record.variants;
+    const variantIds = Array.isArray(rawVariants)
+      ? rawVariants
+          .map((variant) =>
+            typeof variant === 'string'
+              ? variant
+              : variant && typeof variant === 'object' && typeof (variant as { id?: unknown }).id === 'string'
+                ? ((variant as { id: string }).id)
+                : '',
+          )
+          .filter((variant) => OPENCODE_VARIANT_ID.test(variant))
+      : rawVariants && typeof rawVariants === 'object'
+        ? Object.keys(rawVariants).filter((variant) => OPENCODE_VARIANT_ID.test(variant))
+        : [];
+    models.push({
+      id,
+      label: id,
+      ...(variantIds.length > 0
+        ? { reasoningOptions: reasoningOptions(variantIds) }
+        : {}),
+    });
+  }
+  return models.length > 1 ? models : null;
+}
+
+const OPENCODE_SERVER_PROBE_TIMEOUT_MS = 15_000;
+
+/**
+ * Boot a one-shot OpenCode v2 server exactly the way the v2 CLI does —
+ * `opencode serve --stdio --port 0` with a random `OPENCODE_PASSWORD`,
+ * first stdout line is the base URL — and read `GET /api/model` from it.
+ * Any failure (spawn error, no URL line, HTTP error, timeout) resolves
+ * to `null`: variant discovery must never break the plain model list.
+ */
+async function fetchOpenCodeModelInfoFromServer(
+  resolvedBin: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+): Promise<RuntimeModelOption[] | null> {
+  const password = randomBytes(18).toString('hex');
+  const child = spawn(resolvedBin, ['serve', '--stdio', '--port', '0'], {
+    cwd: tmpdir(),
+    env: { ...env, OPENCODE_PASSWORD: password },
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  try {
+    const baseUrl = await new Promise<string | null>((resolve) => {
+      let buffer = '';
+      const timer = setTimeout(() => resolve(null), timeoutMs);
+      child.stdout?.setEncoding('utf8');
+      child.stdout?.on('data', (chunk: string) => {
+        buffer += chunk;
+        const match = buffer.match(/https?:\/\/[^\s]+/);
+        if (match) {
+          clearTimeout(timer);
+          resolve(match[0].replace(/\/+$/, ''));
+        }
+      });
+      child.once('error', () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+      child.once('close', () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+    });
+    if (!baseUrl) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${baseUrl}/api/model`, {
+        headers: {
+          authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) return null;
+      return parseOpenCodeModelInfo(await response.json());
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  } finally {
+    child.kill();
+  }
+}
+
+/**
+ * v2 model discovery for the picker. The CLI listing supplies the model
+ * ids; the one-shot server supplies each model's reasoning variants.
+ * The two are merged by id. If the server probe fails, the plain CLI
+ * list is returned untouched; if the CLI listing also fails, `null`
+ * lets detection fall back to the static fallback models. Nothing here
+ * throws — listing must never break because discovery did.
+ */
+async function fetchOpenCodeModels(
+  resolvedBin: string,
+  env: NodeJS.ProcessEnv,
+): Promise<RuntimeModelOption[] | null> {
+  let plain: RuntimeModelOption[] | null = null;
+  try {
+    const { stdout } = await execAgentFile(resolvedBin, ['models'], {
+      env,
+      timeout: 15_000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    plain = parseOpenCodeModels(String(stdout));
+  } catch {
+    plain = null;
+  }
+  const fromServer = await fetchOpenCodeModelInfoFromServer(
+    resolvedBin,
+    env,
+    OPENCODE_SERVER_PROBE_TIMEOUT_MS,
+  ).catch(() => null);
+  if (!fromServer) return plain;
+  if (!plain) return fromServer;
+  const variantsById = new Map(
+    fromServer
+      .filter((model) => model.id !== 'default' && model.reasoningOptions)
+      .map((model) => [model.id, model.reasoningOptions]),
+  );
+  return plain.map((model) => {
+    const reasoning = variantsById.get(model.id);
+    return reasoning && !model.reasoningOptions
+      ? { ...model, reasoningOptions: reasoning }
+      : model;
+  });
+}
+
 function supportsOpenCodeVariant(
   modelId: string | null | undefined,
   variant: string | null | undefined,
@@ -118,18 +284,24 @@ export const opencodeAgentDef = {
     // to the hardcoded `fallbackModels`, hiding the user's actual catalog.
     // 15s matches the listModels budget the rest of the agent defs use
     // (devin, hermes, kiro, kilo, kimi, trae-cli, vibe, reasonix).
+    // v2 `opencode models` prints plain `provider/model` ids only — the
+    // `--verbose` metadata form is gone. `fetchModels` (preferred by
+    // detection whenever present) merges in each model's reasoning
+    // variants from the one-shot server's `/api/model`; this declarative
+    // listing remains as the plain-id source inside that merge.
     listModels: {
-      args: ['models', '--verbose'],
+      args: ['models'],
       parse: parseOpenCodeModels,
       timeoutMs: 15_000,
     },
+    fetchModels: fetchOpenCodeModels,
     fallbackModels: OPENCODE_FALLBACK_MODELS,
-    // OpenCode 1.18.x exposes provider/model-specific variants. Detection
-    // reads the exact live variant keys from `models --verbose`. The fallback
-    // keeps Sol/Terra/Luna model ids usable during a catalog outage but does
-    // not guess their variants. Unknown model/variant pairs omit `--variant`
-    // rather than inventing a provider capability or preventing the base
-    // model from running.
+    // Reasoning variants come from the v2 server API (`Model.Info`
+    // variants), remembered by `fetchModels` above. The fallback keeps
+    // Sol/Terra/Luna model ids usable during a catalog outage but does
+    // not guess their variants. Unknown model/variant pairs run the base
+    // model without a variant rather than inventing a provider
+    // capability or preventing the run.
     //
     // Prompt delivered via stdin (`opencode run` with no message argv) to
     // avoid Windows `spawn ENAMETOOLONG` while preserving OpenCode's
@@ -142,7 +314,12 @@ export const opencodeAgentDef = {
         'json',
       ];
       appendOpenCodePermissionBypass(args, 'opencode');
-      appendOpenCodeWorkspaceDir(args, runtimeContext.cwd);
+      // No `--dir` argv: OpenCode v2 removed it. The workspace directory
+      // reaches the child through the spawn itself — `cwd` (the runner
+      // spawns with runtimeContext.cwd) plus `env.PWD` pinned to the same
+      // directory via `applyOpenCodeWorkspaceEnv` at the spawn site,
+      // because a spawn `cwd` alone does not update the child's PWD and
+      // v2 resolves `options.root ?? env.PWD ?? process.cwd()`.
       // Capture-style resume: OpenCode mints its own session id (reported on
       // the stream as `sessionID`, e.g. `ses_...`). On a follow-up turn the
       // daemon continues that session with `-s <id>` instead of re-sending the
@@ -157,11 +334,13 @@ export const opencodeAgentDef = {
       if (resumeSessionId) {
         args.push('-s', resumeSessionId);
       }
+      // v2 has no `--variant` flag: a reasoning variant is folded into
+      // the model selector as `-m provider/model#variant`.
+      const variant = supportsOpenCodeVariant(options.model, options.reasoning)
+        ? options.reasoning
+        : null;
       if (options.model && options.model !== 'default') {
-        args.push('-m', options.model);
-      }
-      if (supportsOpenCodeVariant(options.model, options.reasoning)) {
-        args.push('--variant', options.reasoning);
+        args.push('-m', variant ? `${options.model}#${variant}` : options.model);
       }
       return args;
     },

@@ -416,26 +416,37 @@ export function buildAcpMcpServers(servers: McpServerConfig[]): AcpMcpServer[] {
  * access to daemon-selected absolute paths (project cwd, staged skill dirs,
  * etc.) so headless OpenCode runs do not auto-reject them.
  *
- * Schema (verified against the dev branch of `sst/opencode`'s
- * `packages/opencode/src/config/config.ts` and the public docs at
- * <https://opencode.ai/docs/mcp-servers>):
+ * Schema (OpenCode **v2** config — this port targets v2 only, there is
+ * no v1 emission anywhere in this payload):
  *
  *   {
  *     "mcp": {
- *       "<id>": {
- *         "type": "local",
- *         "command": ["<cmd>", "<arg1>", ...],
- *         "environment"?: { ... },
- *         "enabled": true
- *       },
- *       "<id>": {
- *         "type": "remote",
- *         "url": "...",
- *         "headers"?: { ... },
- *         "enabled": true
+ *       "servers": {
+ *         "<id>": {
+ *           "type": "local",
+ *           "command": ["<cmd>", "<arg1>", ...],
+ *           "environment"?: { ... },
+ *           "disabled": false
+ *         },
+ *         "<id>": {
+ *           "type": "remote",
+ *           "url": "...",
+ *           "headers"?: { ... },
+ *           "disabled": false
+ *         }
  *       }
- *     }
+ *     },
+ *     "permissions": [
+ *       { "action": "external_directory", "resource": "<dir>/**", "effect": "allow" },
+ *       { "action": "edit", "resource": "<pattern>", "effect": "deny" }
+ *     ]
  *   }
+ *
+ * Two v1→v2 shape changes matter here: MCP servers nest under
+ * `mcp.servers` and carry `disabled` (the inverse of v1's `enabled`;
+ * v2 does not know an `enabled` key), and permission grants are an
+ * ordered `permissions` ruleset of `{action, resource, effect}` —
+ * evaluated last-match-wins — instead of the v1 `permission` record.
  *
  * Returns `null` when nothing would be emitted — the caller must NOT set
  * `OPENCODE_CONFIG_CONTENT` to `null`/empty in that case, because doing so
@@ -475,7 +486,7 @@ export function buildOpenCodeMcpConfigContent(
       if (s.env && Object.keys(s.env).length > 0) {
         entry.environment = { ...s.env };
       }
-      entry.enabled = true;
+      entry.disabled = false;
       mcp[s.id] = entry;
     } else {
       const url = typeof s.url === 'string' ? s.url.trim() : '';
@@ -489,7 +500,7 @@ export function buildOpenCodeMcpConfigContent(
         effectiveMcpAuthMode(s) === 'oauth' ? tokens[s.id] : undefined,
       );
       if (headers && Object.keys(headers).length > 0) entry.headers = headers;
-      entry.enabled = true;
+      entry.disabled = false;
       mcp[s.id] = entry;
     }
   }
@@ -505,21 +516,101 @@ export function buildOpenCodeMcpConfigContent(
   ) return null;
 
   const config: Record<string, unknown> = { ...extraConfig };
-  if (Object.keys(mcp).length > 0) config.mcp = mcp;
-  if (externalDirectory) {
-    const priorPermission =
-      config.permission && typeof config.permission === 'object' && !Array.isArray(config.permission)
-        ? config.permission as Record<string, unknown>
-        : {};
-    config.permission = {
-      ...priorPermission,
-      external_directory: externalDirectory,
-      ...(readOnlyDirectory ? {
-        edit: restrictOpenCodeResourceEdits(priorPermission.edit, readOnlyDirectory, options.readOnlyEditBaseDirs),
-      } : {}),
-    };
-  }
+  if (Object.keys(mcp).length > 0) config.mcp = { servers: mcp };
+  // v2-only: a v1 `permission` record in the incoming extra config is
+  // converted into the `permissions` ruleset, never re-emitted as-is.
+  const priorPermission =
+    config.permission && typeof config.permission === 'object' && !Array.isArray(config.permission)
+      ? config.permission as Record<string, unknown>
+      : {};
+  delete config.permission;
+  const permissions = buildOpenCodePermissionsV2({
+    priorPermission,
+    externalDirectory,
+    readOnlyDirectory,
+    readOnlyEditBaseDirs: options.readOnlyEditBaseDirs,
+    priorRules: Array.isArray(config.permissions)
+      ? config.permissions as OpenCodePermissionRule[]
+      : [],
+  });
+  if (permissions.length > 0) config.permissions = permissions;
   return JSON.stringify(config);
+}
+
+/** One rule of the OpenCode v2 `permissions` ordered ruleset. */
+export interface OpenCodePermissionRule {
+  action: string;
+  resource: string;
+  effect: string;
+}
+
+function permissionRecordToRules(
+  action: string,
+  value: unknown,
+  out: OpenCodePermissionRule[],
+): void {
+  if (typeof value === 'string') {
+    out.push({ action, resource: '*', effect: value });
+    return;
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const [resource, effect] of Object.entries(value)) {
+      if (typeof effect === 'string') out.push({ action, resource, effect });
+    }
+  }
+}
+
+/**
+ * Convert the daemon's v1-shaped permission inputs (a record of
+ * `pattern -> effect` per action, as callers and extra config still
+ * express them) into the OpenCode v2 `permissions` ruleset: an ordered
+ * array of `{action, resource, effect}`.
+ *
+ * Ordering contract (last match wins in v2, exactly as the v1 record
+ * semantics assumed): prior categories keep their relative order, the
+ * computed external-directory allowlist follows, edit rules follow
+ * that — and then every `deny` rule is stably moved to the very end,
+ * preserving the daemon's long-standing invariant that resource
+ * denials evaluate last (see `restrictOpenCodeResourceEdits`).
+ */
+export function buildOpenCodePermissionsV2(input: {
+  priorPermission?: Record<string, unknown>;
+  externalDirectory?: Record<string, 'allow'> | null;
+  readOnlyDirectory?: Record<string, 'allow'> | null;
+  readOnlyEditBaseDirs?: string[];
+  priorRules?: OpenCodePermissionRule[];
+}): OpenCodePermissionRule[] {
+  const rules: OpenCodePermissionRule[] = [...(input.priorRules ?? [])];
+  const prior = input.priorPermission ?? {};
+  for (const [action, value] of Object.entries(prior)) {
+    if (action === 'external_directory' || action === 'edit') continue;
+    permissionRecordToRules(action, value, rules);
+  }
+  const priorExternal = prior.external_directory;
+  const externalRecord: Record<string, unknown> = {
+    ...(typeof priorExternal === 'string'
+      ? { '*': priorExternal }
+      : priorExternal && typeof priorExternal === 'object' && !Array.isArray(priorExternal)
+        ? priorExternal
+        : {}),
+    ...(input.externalDirectory ?? {}),
+  };
+  if (Object.keys(externalRecord).length > 0) {
+    permissionRecordToRules('external_directory', externalRecord, rules);
+  }
+  if (input.readOnlyDirectory) {
+    permissionRecordToRules(
+      'edit',
+      restrictOpenCodeResourceEdits(prior.edit, input.readOnlyDirectory, input.readOnlyEditBaseDirs),
+      rules,
+    );
+  } else if (prior.edit !== undefined) {
+    permissionRecordToRules('edit', prior.edit, rules);
+  }
+  return [
+    ...rules.filter((rule) => rule.effect !== 'deny'),
+    ...rules.filter((rule) => rule.effect === 'deny'),
+  ];
 }
 
 /** Resource denials must be last: OpenCode uses the last matching pattern. */
