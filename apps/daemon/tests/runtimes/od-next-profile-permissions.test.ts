@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveOpenCodeEditBaseDirs } from '../../src/runtimes/opencode-permissions.js';
 import * as invocation from '../../src/runtimes/invocation.js';
+import { isBun } from '../helpers/runtime.js';
 
 // HTTP launch coverage lives with the isolated public-run fixtures in
 // od-next-automatic-simple-server.test.ts, including ordinary/BYOK failures.
@@ -20,7 +21,10 @@ describe('OpenCode resource edit base', () => {
     fixtureDir = undefined;
   });
 
-  it('covers the volume root outside Git and the enclosing worktree inside it', async () => {
+  // Bun-only code path: the unmocked git probe runs execFileBun
+  // in-process; under the Node harness it cannot succeed. Runs on the
+  // Bun track. See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('covers the volume root outside Git and the enclosing worktree inside it', async () => {
     fixtureDir = await mkdtemp(path.join(os.tmpdir(), 'od-profile-worktree-'));
     const outside = await resolveOpenCodeEditBaseDirs(fixtureDir);
     expect(outside.dirs).toContain(path.parse(fixtureDir).root);

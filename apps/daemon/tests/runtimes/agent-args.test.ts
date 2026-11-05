@@ -12,6 +12,7 @@ import {
   rememberLiveModels,
 } from '../../src/runtimes/models.js';
 import type { TestAgentDef } from './helpers/test-helpers.js';
+import { isBun } from '../helpers/runtime.js';
 
 // ---- Cursor Agent --trust capability (issue #4461) -------------------------
 // `--trust` is only honored in `-p`/headless mode and only exists on newer
@@ -398,7 +399,10 @@ test('pi args use rpc mode without --no-session and append model/thinking option
   ]);
 });
 
-test('pi fetchModels reads the model table from stdout', async () => {
+// Bun-only code path: pi.fetchModels reaches execFileBun in-process, so
+// under the Node harness this fails with `Bun is not defined`; it runs
+// on the Bun track. See port/TEST-SUITES.md §4.2.
+test.skipIf(!isBun)('pi fetchModels reads the model table from stdout', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-pi-models-'));
   try {
     const bin = join(dir, process.platform === 'win32' ? 'pi.cmd' : 'pi');

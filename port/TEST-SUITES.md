@@ -259,3 +259,184 @@ architecture, not environment.
   Neither track alone tells the whole story yet; together they
   separate "the port is wrong" (almost nothing) from "the harness
   can't see Bun yet" (almost everything red).
+
+---
+
+## 7. Test adjustments to the port architecture (stream `port/test-adjust`, 2026-11-06)
+
+Base: `a551445`. Hadi's decision: *"tes nya disesuaikan saja"* — adjust
+the tests to the port's locked architecture. Production behaviour is
+the source of truth wherever a port decision is locked (R4, the
+Bun-only DB layer, the Bun spawn helpers); no production code was
+edited in this stream, and no assertion was weakened to hide a
+product failure. Local verification is focused-only per house rules;
+the full-suite numbers belong to the next Actions run.
+
+### 7.1 §4.4 closed — `tests/proxy-dispatcher-options.test.ts` re-aimed at R4
+
+All 10 dispatcher-era tests converted; the undici mock and the
+agent-constructor/dispatch spies are gone. Conversion map (old →
+new assertion on `proxyDispatcherRequestInit()`):
+
+- EnvHttpProxyAgent construction + forwarded timeouts → the init is
+  exactly `{ proxy: 'http://proxy.example.test:8080' }`, no
+  `dispatcher` key, timeout options accepted for call-shape
+  compatibility, `close()` resolves.
+- Socks5ProxyAgent on SOCKS `ALL_PROXY` → `{ proxy: 'socks5://…' }`
+  (native fetch speaks socks5:// directly).
+- `socks5h://` normalization → still normalized, now in the resolver:
+  `{ proxy: 'socks5://…' }`.
+- Timeouts into Socks5ProxyAgent → same call-shape test as the HTTP
+  case.
+- Per-scheme pair (×2: HTTP_PROXY-only, HTTPS_PROXY-only) → the
+  configured HTTP(S) proxy wins over the SOCKS `ALL_PROXY` fallback
+  in the single-string resolution.
+- NO_PROXY bypass ×3 (loopback defaults, explicit `.corp.test`,
+  `<local>` simple hosts) and the outside-NO_PROXY keep ×1 → expressed
+  through the helper's `targetUrl` parameter: a bypassed target drops
+  the proxy (`requestInit` is `{}`), a non-bypassed target keeps it.
+
+**Dropped, with the reason recorded in the file header:** the
+per-request `dispatch()` routing assertions (which agent receives a
+given origin, incl. the "missing scheme routes to SOCKS" half of the
+pair cases). A single `proxy` string has no per-request routing;
+there is no counterpart to assert. One test was **added** beyond the
+original 10: unset proxy env ⇒ `requestInit` is `{}` with no `proxy`
+field (a semantic the brief for this stream lists explicitly).
+
+Result: **11/11 green under BOTH harnesses** (Node bin and
+`bunx --bun vitest`; the Bun side needed §7.4's fix to load at all).
+
+### 7.2 §4.2 guards — Bun-only in-process paths skip under Node
+
+New shared helper `apps/daemon/tests/helpers/runtime.ts` exports
+`isBun` (`typeof Bun !== 'undefined'`). Guards applied at the
+narrowest scope, each with a citing comment; guarded tests report
+**skipped** (not failed, not passed) under Node and execute under
+Bun:
+
+| File | Scope | Tests |
+|---|---|---|
+| `tests/runtimes/agent-args.test.ts` | the single pi `fetchModels` test (`test.skipIf`) | 1 |
+| `tests/runtimes/exec-agent-cwd.test.ts` | both describes (`describe.skipIf`) — every test calls `execAgentFile` in-process (verified by reading) | 3 |
+| `tests/runtimes/codex-model-preflight.test.ts` | the 5 tests needing a successful version/login probe through the real `execFileBun` | 5 |
+| `tests/runtimes/od-next-profile-permissions.test.ts` | the 1 test whose unmocked git probe must succeed via `execFileBun` | 1 |
+
+Sibling sweep (the brief's bounded search — the other files that
+reference `execFileBun`/`execAgentFile`, run focused under Node):
+`tests/codex-model-capability-preflight.test.ts`,
+`tests/od-next-automatic-simple-server.test.ts` and
+`tests/runtimes/opencode-child-evidence.test.ts` die at collection —
+they are §4.1 manifest files (§7.3), not guard cases;
+`tests/runtimes/auth-probe-4456.test.ts` (11 ✓) and
+`tests/runtimes/probe-ghost-cli.test.ts` (12 ✓) pass unguarded
+(their spawn layer is fully mocked). `codex-model-preflight`'s
+failure surface under Node is the swallowed-probe variant of §3.1's
+spawn/detection family (probes return null → preflight degrades to
+`unknown`), which is why its assertions diff instead of throwing
+`Bun is not defined`.
+
+Verified: under Node the two newly-guarded files went from
+5-failed/1-failed to fully passed with the guarded tests skipped;
+under Bun (with §7.4) all four guarded files execute — 26 passed /
+1 skipped (the skip is the pre-existing root-uid guard in
+od-next-profile-permissions) — including the pi `fetchModels` test
+running green in `agent-args`.
+
+### 7.3 §4.1 wall → committed exclusion manifest (Node harness only)
+
+`apps/daemon/tests/node-harness-exclusions.json`: **435 entries**,
+generated from the Actions Node-gate job log of run **42084483030**
+(job `127445804657`) — per Hadi's resource policy the extraction ran
+on the runner's log, not on a local full run. Method: parse the
+Vitest *Failed Suites* section, attribute each grouped error to its
+suite headers (both the bracketed form and the `FAIL file > describe`
+form), keep the files whose collection error is the `bun:sqlite`
+wall (the `'bun:'` scheme class matched zero additional files).
+All 435 classified `bun:sqlite`.
+
+**Delta check: zero.** The manifest's 435 equals both the CI run's
+own "Failed Suites 435" headline and §3.1's local 435. Two parsing
+subtleties worth recording: 8 of the 435 suites are reported in
+`FAIL file > describe` form (their import graph dies inside a
+describe hook — server-boot suites such as `server-startup-smoke`),
+and 2 files appear in a second error group whose printed error is a
+secondary teardown `TypeError` (reading 'close'/'shutdown'); both
+were already classified by their primary group. The only
+run-to-run movement vs §3.1 is in the test-level tail (CI files:
+463 failed / 582 passed / 6 skipped vs local 466 / 580 / 5) — the
+collection wall itself is identical. Regeneration recipe: re-run
+the extraction against a newer Node-gate job log whenever the
+suite inventory changes materially; the extractor used here is a
+throwaway log parser, the manifest is the committed artifact.
+
+Wiring (`apps/daemon/vitest.config.ts`): when the config executes in
+a runtime without the `Bun` global, `test.exclude` is extended with
+the manifest (each entry as a `**/<path>` glob); under Bun the
+exclusion list is empty. Vitest's own default excludes are spelled
+out explicitly because setting `exclude` replaces them. Verified by
+collection listing both ways: `tests/storage-db-inspect.test.ts`
+(a manifest entry) collects zero files under Node and lists its
+tests under Bun; a non-manifest file lists normally under Node.
+
+### 7.4 §4.3 Zod wall — one config attempt, kept
+
+Budget was 3 attempts; the first worked, so B/C were never spent.
+
+**Attempt A (KEPT): `ssr.noExternal: [/@open-design\/contracts/, /zod/]`**
+in `apps/daemon/vitest.config.ts`. What it does: Vitest 4 has no
+`server.deps.inline`; `ssr.noExternal` is its successor knob — it
+forces Vite's module runner to transform and evaluate those two
+packages instead of externalizing them, so Vite synthesizes zod's
+CJS named exports itself rather than relying on the Bun external
+module interop that produced the undefined `z` namespace.
+
+Subset result under `bunx --bun vitest` (the 7 §2.2 dead files):
+**0/7 → 6/7 files fully green** (`byok-tools`, `asset-ssrf-loopback`,
+`agent-args` incl. the now-running pi test, `db-agent-sessions`,
+`db-message-events`, `db-workspace-resources`), and the 7th,
+`connection-test`, loads and executes: across the 7 files,
+**340 passed / 5 failed of 345**. The 5 failures are all in
+`connection-test` and are not interop and not port regressions —
+that file has no green baseline on the ported tree under either
+harness (it is a §7.3 manifest file under Node): 3 are this VM's
+ambient proxy env (`HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` all point
+at the sandbox egress proxy and leak into the default-env code
+paths the tests exercise; the runner has no ambient proxy), and
+2 are agent-mode outcome diffs of the §3.2 heterogeneous-tail kind.
+Node-track regression check with the final config: the 8-file
+focused set passes (260 passed / 11 skipped / 0 failed), confirming
+`noExternal` is a semantic no-op under Node.
+
+Implication for §3.2's full-run numbers: the `z.*` interop groups
+headed the largest Bun-track FAIL clusters (incl. the whole `acp-*`
+family), so the Bun track's executed-test count should rise
+substantially in the next Actions run; that run is the arbiter.
+
+### 7.5 Expected posture after this stream
+
+- **Node gate:** daemon scope is now the non-DB suites (435 DB
+  suites excluded by manifest instead of failing at collection) plus
+  the web suite; the 10 known Bun-path tests report skipped.
+  Remaining known red on this track is the §3.1 test-level tail not
+  covered here (process-restart suites whose node-spawned children
+  hit the `'bun:'` scheme, the agent-process fixture daemon family)
+  plus the 5 contention-sensitive web files of §3.3 — the gate's red
+  is now legible and scoped, not yet zero.
+- **Bun track (experimental):** the contracts/Zod collection wall is
+  down (§7.4); DB suites are collected (no exclusions) and the
+  guarded tests execute. §4.1's Vitest-resolution variant of the
+  `bun:` wall on some import paths is untouched by this stream and
+  remains the track's known unknown, to be measured by the next
+  full Actions run.
+- **Exit conditions (unchanged):** when the Bun track is fully
+  green, the Node track retires — and with it the manifest, the
+  runtime detection in `vitest.config.ts`, and the `isBun` guards'
+  reason to exist (they degrade to always-run). The `ssr.noExternal`
+  inlining stays as long as Vitest-on-Bun needs it.
+
+Verification summary (this stream, focused only): item files green
+under both harnesses as itemized above; `bun check -p
+apps/daemon/tsconfig.tests.json` = 0 errors; port layer `bun test`
+11/11; manifest JSON valid, sorted, 435 unique entries; config
+loads under both runtimes (collection listings in §7.3).

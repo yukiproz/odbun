@@ -14,13 +14,18 @@ import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 
 import { execAgentFile } from '../../src/runtimes/invocation.js';
+import { isBun } from '../helpers/runtime.js';
 
 const PRINT_CWD = 'process.stdout.write(process.cwd())';
 // `process.cwd()` reports the realpath, while os.tmpdir() / mkdtemp can sit
 // behind symlinks (e.g. macOS `/tmp` → `/private/tmp`). Compare realpaths.
 const real = (p: string) => fs.realpathSync(p);
 
-describe('execAgentFile cwd isolation', () => {
+// Bun-only code path: every test here calls execAgentFile, which runs
+// execFileBun in-process; under the Node harness these fail with
+// `Bun is not defined`. They run on the Bun track.
+// See port/TEST-SUITES.md §4.2.
+describe.skipIf(!isBun)('execAgentFile cwd isolation', () => {
   it('defaults to a neutral cwd (OS temp dir), not the daemon process cwd', async () => {
     const { stdout } = await execAgentFile(process.execPath, ['-e', PRINT_CWD]);
     const childCwd = real(String(stdout).trim());
@@ -41,7 +46,9 @@ describe('execAgentFile cwd isolation', () => {
   });
 });
 
-describe('execAgentFile probe termination', () => {
+// Bun-only code path: execAgentFile -> execFileBun in-process; runs on
+// the Bun track. See port/TEST-SUITES.md §4.2.
+describe.skipIf(!isBun)('execAgentFile probe termination', () => {
   it('settles a probe whose binary swallows SIGTERM', async () => {
     // `timeout` alone only *signals*: execFile settles on 'close', which needs
     // the child to actually exit. A CLI that traps SIGTERM therefore left the
