@@ -1769,7 +1769,31 @@ export function registerCollabSyncRoutes(
     if (!verification.ok) return res.status(verification.status).json({ error: verification.code });
     const context = verification.context;
     const principal = publicFilePrincipal(context);
-    if (!context || !principal) return res.status(409).json(workspaceIdentityRequiredBody());
+    if (!principal) {
+      if (context) {
+        // A workspace context is claimed but carries no usable workspace
+        // identity: share history is addressed by that identity, so there
+        // is nothing honest to answer from. Keep refusing — never fabricate
+        // a share-free reading for a workspace-scoped session whose
+        // identity is missing.
+        return res.status(409).json(workspaceIdentityRequiredBody());
+      }
+      // odbun P5 (daemon side of upstream #8926 / #8927): no workspace
+      // identity is claimed at all — a signed-out local session. Public-file
+      // publications in the local public_file_publications table are keyed
+      // by (resourceTeamId, ownerMemberId, projectId) and are only ever
+      // written by the identity-bound publish flow, so a session with no
+      // identity in scope has no addressable share surface: for it the
+      // local table is empty and the project is never-shared. Answer that
+      // local history instead of 409. This is a display read, not an
+      // authorization: the DELETE path keeps its own binding check (the
+      // workspace_projects row in project-request-authority) as the
+      // server-side stop-before-delete gate for bound projects.
+      const response: import('@open-design/contracts').ProjectShareHistoryResponse = {
+        projectId, bindingExists: false, hasEverShared: false, publications: [],
+      };
+      return res.json(response);
+    }
     if (!deps.readProjectShareState) return res.status(503).json({ error: 'SHARE_STATE_UNAVAILABLE' });
     try {
       const state = await deps.readProjectShareState({ projectId, resourceTeamId: principal.teamId, ownerMemberId: principal.memberId });
