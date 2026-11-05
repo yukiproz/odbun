@@ -440,3 +440,183 @@ under both harnesses as itemized above; `bun check -p
 apps/daemon/tsconfig.tests.json` = 0 errors; port layer `bun test`
 11/11; manifest JSON valid, sorted, 435 unique entries; config
 loads under both runtimes (collection listings in §7.3).
+
+## 8. Vela parked (stream `port/park-vela`, 2026-11-06)
+
+Base: `a9660fb`. Hadi's decision: **park the Vela integration** in
+the odbun build. Vela is upstream's team/cloud layer — an external
+CLI the daemon shells out to via `src/integrations/vela-command.ts`,
+carrying the collab adapters (`src/collab/vela-cli-*`), the AMR
+runtime binary, and the login / billing / team-projects / share
+surfaces. odbun's scope is local/single-user web; team features are
+not carried. Vela is rooted in **122 src files**, so this is a park,
+not a removal: **no production code and no test file was edited** —
+the suites are excluded at the config level on both harnesses and
+the code stays dormant. Registered as port item **V1**
+(`port/port-items.json`) with a note in `PORTING.md` ("Out of scope
+(by decision)").
+
+### 8.1 The parked set — 73 files, two criteria
+
+Committed as `apps/daemon/tests/parked-features.json` (sorted,
+unique; same `tests/…` entry format as the §7.3 manifest), generated
+by a throwaway census script; the manifest is the artifact.
+
+- **(a) Name census — 32 files:** every `tests/vela-*.test.ts`.
+  (Hadi's earlier "33" census counted `tests/mcp-vela-login.test.ts`
+  as well; its name misses the glob, so it enters via (b).)
+- **(b) Subject census — 41 files:** suites whose subject is the
+  Vela integration or the AMR-via-Vela path, decided file by file
+  from imports/subject and cross-checked against the FAIL lists of
+  Actions run **42088193631** (Bun job `127458903603`, Node job
+  `127458903508`). Groups:
+  - Vela integration modules under test (11):
+    `tests/integrations/vela{,-command,-errors,-terminal-command,-wallet,.routes}.test.ts`
+    (6), `tests/media/vela.test.ts`,
+    `tests/media/vela-workspace-routes.test.ts`,
+    `tests/runtimes/vela-child-evidence.test.ts`,
+    `tests/mcp-vela-login.test.ts`, `tests/resource-cli.test.ts`
+    (the `od resource` Vela compatibility entry point). Group
+    counts: 11 + 12 + 3 + 15 = 41; the manifest itself is the
+    authoritative list.
+  - AMR (vela) runtime path (12): `tests/amr-acp-integration`,
+    `amr-auth-analytics`, `amr-image-staging`, `amr-login-cli`,
+    `amr-session-resume`, `public-share-amr-link`,
+    `tests/runtimes/amr-model-cache`, `amr-terminal-report-delivery`,
+    `amr-terminal-reports`, `open-design-amr-trace-env`,
+    `project-amr-trace-env`, `project-amr-workspace-proof`.
+  - Vela media stock search (3): `tests/media-stock-daemon`,
+    `media-stock-search-cli`, `media-stock-search` (the "company
+    service" is reached through `vela-command` /
+    `src/media/vela-stock-search.js`).
+  - Team/cloud features whose only backend is the Vela CLI/hub (15):
+    `tests/collab-cloud`, `collab-sync-routes`,
+    `tests/collab/authorized-team-project-pull`, `hub-events-subscriber`,
+    `owned-content-files`, `team-mirror-materializer`,
+    `team-mirror-promotion`, `workspace-billing-expiry`,
+    `workspace-billing-runtime`,
+    `workspace-projects-reconcile-membership`,
+    `tests/workspace-billing-server-wiring`,
+    `workspace-context-authority-server-wiring`,
+    `opend-3855-explicit-sync`, `public-share-project-bootstrap`,
+    `publish-team-private-project-backfill`.
+
+### 8.2 Borderline calls (recorded per the brief)
+
+Parked, with the deciding fact:
+
+- `tests/collab/owned-content-files.test.ts` — instantiates the
+  real `createVelaCliTeamProjectCatalog`; the remote source under
+  test is the adapter itself, not a stub.
+- `tests/collab-sync-routes.test.ts` — the vela adapters are mocked,
+  but the subject is the team-sync route surface itself, whose only
+  production backend is those adapters.
+- `tests/collab/hub-events-subscriber.test.ts` — a parser, but of
+  the Vela hub event stream, including `vela-billing` quota scopes.
+- `tests/collab/workspace-projects-reconcile-membership.test.ts` —
+  the reconciler's remote side is the vela-cli team catalog,
+  imported directly.
+- `tests/publish-team-private-project-backfill.test.ts`,
+  `tests/public-share-project-bootstrap.test.ts` — team publishing /
+  share bootstrap wired directly to the vela-cli resource adapter /
+  `registerVelaTeamProjectResource`.
+- `tests/workspace-billing-server-wiring.test.ts` and
+  `tests/workspace-context-authority-server-wiring.test.ts` —
+  server wiring for the vela billing runtime / workspace-context
+  authority (`VELA_*` env, team transports); both were in the Node
+  track's 23-file failing set.
+- `tests/amr-image-staging.test.ts` — a local fs helper, but its
+  only caller is the AMR upload flow in `server.ts`; it exists
+  solely within the AMR path.
+- `tests/runtimes/amr-model-cache.test.ts` and
+  `tests/runtimes/amr-terminal-reports.test.ts` — their transports /
+  loaders are injected stubs, but the modules under test exist
+  solely for the AMR (vela) catalog / terminal-report delivery;
+  parked together with their transport-facing siblings
+  (`amr-terminal-report-delivery` imports `vela-command` directly).
+
+Stayed unparked, with the deciding fact:
+
+- `tests/collab-presence-transport-off.test.ts` — tests the
+  transport-OFF process-local presence fallback: exactly the
+  configuration odbun runs. Parking it would remove coverage of the
+  shipped mode.
+- `tests/amr-stderr-filter.test.ts` — the filter lives in the shared
+  ACP session layer (`src/agent-protocol/acp/*`, all ACP runtimes;
+  the suite covers OpenCode bootstrap stderr) and drives no vela
+  machinery.
+- `tests/diagnostic-amr-runtime-log.test.ts` — subject is the
+  general diagnostics-export source selection over local logs; AMR
+  is one source among several.
+- `tests/routes/workspace-projects.test.ts` — local
+  workspace-project route behaviour (send-recency round-trip); vela
+  modules supply context plumbing only.
+- The P5 local publication/comment family
+  (`public-file-publication-restart`, `public-file-error-chain`,
+  `public-comment-anchor`, `comment-*`, `publish-http-comment-backfill`,
+  `published-file-comment-backfill`, …) — local stores/outboxes with
+  the vela boundary mocked away; their subject is the fully-local
+  behaviour P5 exists to protect.
+- `tests/run-failure-account-suspended.test.ts`,
+  `tests/runtimes/balance-vs-rate-limit-snapshot.test.ts`,
+  `tests/runtimes/tool-vs-agent-auth-snapshot.test.ts` — local
+  failure-classification / landing-table suites; `vela-errors` is a
+  mocked/fixture input, the module under test is local.
+- `tests/touchpoint-cache-process-restart.test.ts` — zero vela
+  references; a local touchpoint cache-process persistence suite
+  (its 19 Node-track failures are the fork/tsx class of §3.1's tail,
+  not vela).
+
+### 8.3 Mechanism
+
+`apps/daemon/vitest.config.ts` now composes three exclusion layers:
+the spelled-out Vitest defaults (always), the §7.3
+`node-harness-exclusions.json` (only when the `Bun` global is
+absent), and `parked-features.json` (**always**, both runtimes —
+a parked feature is off everywhere, not harness-dependent). The
+`ssr.noExternal` Zod fix is untouched. The config comment block
+carries the decision, its date, and the exit condition.
+
+### 8.4 Expected effect per track (against run 42088193631)
+
+- **Bun track** (was 24 failed files / 178 failed tests of 14,250;
+  1,051 files collected): parking removes **5 failed files / 64
+  failed tests** — `integrations/vela.routes` (34) +
+  `integrations/vela` (16) + `integrations/vela-wallet` (10) are
+  exactly the reported 60-test vela cluster, plus
+  `runtimes/amr-terminal-report-delivery` (3) +
+  `runtimes/amr-terminal-reports` (1). Expected remainder: 19 failed
+  files / 114 failed tests, dominated by
+  `od-next-automatic-simple-server` (85) — untouched by this stream.
+  Collected files drop 1,051 → 978.
+- **Node gate** (was 23 failed files / 127 failed tests; 616 files
+  collected): parking removes **3 failed files / 22 failed tests**
+  (`amr-acp-integration` 6, `workspace-context-authority-server-wiring`
+  13, `workspace-billing-server-wiring` 3). Of the 73 parked files,
+  25 were already excluded on this track via the §7.3 manifest; 48
+  are newly excluded (their passing coverage on this track goes
+  dormant with the feature — intended). Collected files drop
+  616 → 568.
+- **Exit condition:** a future decision to carry team features
+  unparks Vela by deleting the manifest entries (and the config
+  comment block); no other change is needed, because the product
+  code never left the tree.
+
+Verification summary (this stream, focused only): collection
+listings under both harnesses — parked files
+(`tests/vela-billing.test.ts`, `tests/integrations/vela.test.ts`)
+collect **zero** under Node AND under Bun (the integrations case is
+the discriminating one: no Node manifest applies under Bun, yet the
+park still excludes), the non-parked collab neighbour
+`tests/collab/swr-cache.test.ts` lists 9 tests under both, and the
+manifest-only `tests/storage-db-inspect.test.ts` still lists 0
+under Node / 8 under Bun (§7.3 behaviour unchanged). Focused run of
+three unparked neighbours (`collab/swr-cache`,
+`collab/workspace-scope`, `collab/event-refresh-coordinator`):
+**3 files / 17 tests passed under both harnesses**. `bun check -p
+apps/daemon/tsconfig.tests.json` = 0 errors (1,856 files;
+`vitest.config.ts` is not part of that program — the collection
+listings above are the config-load proof for both runtimes). Port
+layer `bun test` 11/11. Manifest JSON valid, sorted, 73 unique
+entries; `port-items.json` valid with V1 appended. Post-merge
+full-suite Actions totals are the coordinator's step.
