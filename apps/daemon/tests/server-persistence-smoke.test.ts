@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 
+import { isBun } from './helpers/runtime.js';
+
 type StartedServer = {
   url: string;
   server: Server;
@@ -31,7 +33,11 @@ afterEach(async () => {
   vi.resetModules();
 }, 30_000);
 
-it('[P0] starts on an existing data dir with legacy app config and persisted projects', async () => {
+// Bun-only code path: the case boots the real server in-process, and
+// src/server.ts reaches the Bun-only DB adapter (bun:sqlite), which the
+// Node harness cannot load. It runs on the Bun track.
+// See port/TEST-SUITES.md §4.1 / §7.5.
+it.skipIf(!isBun)('[P0] starts on an existing data dir with legacy app config and persisted projects', async () => {
   dataDir = await mkdtemp(join(tmpdir(), 'od-server-persistence-smoke-'));
   await mkdir(dataDir, { recursive: true });
   await writeFile(join(dataDir, 'app-config.json'), JSON.stringify({

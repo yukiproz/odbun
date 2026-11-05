@@ -10,6 +10,7 @@ import { claudeAgentDef } from '../../src/runtimes/defs/claude.js';
 import { classifyRunFailure } from '../../src/run-failure-classification.js';
 import { summarizeRunDiagnosticsForAnalytics } from '../../src/run-diagnostics.js';
 import { deriveRunErrorCode, runResultFromStatus } from '../../src/run-result.js';
+import { isBun } from '../helpers/runtime.js';
 
 type StartedServer = {
   url: string;
@@ -55,7 +56,11 @@ type TaskRunObservation = {
   taskExecutionId: string;
 };
 
-describe('run failure telemetry smoke', () => {
+// Bun-only code path: every case boots the real daemon in-process, and
+// src/server.ts reaches the Bun-only DB adapter (bun:sqlite), which the
+// Node harness cannot load (Cannot find package 'bun:sqlite'). The
+// suite runs on the Bun track. See port/TEST-SUITES.md §4.1 / §7.5.
+describe.skipIf(!isBun)('run failure telemetry smoke', () => {
   const originalEnv = snapshotEnv();
   let started: StartedServer | null = null;
   let binDir: string | null = null;

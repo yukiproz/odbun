@@ -6,6 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+import { isBun } from './helpers/runtime.js';
+
 function recordEvidence(value: object) {
   console.info(JSON.stringify(value));
   const log = process.env.CMS_CACHE_PROCESS_RECEIPTS;
@@ -37,7 +39,13 @@ async function terminate(child: ChildProcess) {
   return { pid: child.pid, ...result };
 }
 
-describe('touchpoint authority across OS process death', () => {
+// Bun-only code path: every case forks the fixture with the harness
+// runtime, and the fixture loads the production registrar whose storage
+// chain reaches the Bun-only DB adapter (src/db.ts -> bun:sqlite). Under
+// the Node harness the child dies at load with
+// ERR_UNSUPPORTED_ESM_URL_SCHEME (protocol 'bun:'); the suite runs on
+// the Bun track. See port/TEST-SUITES.md §4.1 / §7.5.
+describe.skipIf(!isBun)('touchpoint authority across OS process death', () => {
   it.each(['assembly-read', 'assembly-enumeration'])('does not revive a 404 when %s fails but journal writes succeed', async fault => {
     const dataDir = mkdtempSync(path.join(tmpdir(), 'touchpoint-process-'));
     const children: ChildProcess[] = [];

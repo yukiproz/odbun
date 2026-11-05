@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { register } from 'prom-client';
 
+import { isBun } from './helpers/runtime.js';
+
 // This suite isolates the heuristic request boundary. The actual heuristic,
 // extraction records, memory files and HTTP routes are not mocked. Background
 // provider inference is a separate pipeline and must not spend provider budget.
@@ -111,7 +113,11 @@ async function send(message: string, current?: { currentPrompt: string | null })
 
 // These are actual HTTP/run/heuristic records. Only background provider work
 // is mocked; the next suite separately proves the real LLM record writer.
-describe('memory extraction records preserve their producing chat origin', () => {
+// Bun-only code path: every case boots the real server in-process in
+// beforeEach, and src/server.ts reaches the Bun-only DB adapter
+// (bun:sqlite), which the Node harness cannot load. The suite runs on
+// the Bun track. See port/TEST-SUITES.md §4.1 / §7.5.
+describe.skipIf(!isBun)('memory extraction records preserve their producing chat origin', () => {
   it('threads the authoritative daemon run identity to heuristic records and child-close extraction', async () => {
     const { extractWithLLM } = await import('../src/memory-llm.js');
     const background = vi.mocked(extractWithLLM);
