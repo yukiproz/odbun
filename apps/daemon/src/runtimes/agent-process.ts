@@ -20,13 +20,15 @@
  *   next daemon start terminates the ones a dead daemon left behind.
  *
  * `spawnAgentProcess` is the one spawn path that composes them; the daemon's
- * chat-run launcher calls it instead of `child_process.spawn`.
+ * chat-run launcher calls it instead of spawning the CLI itself. (R3b: the
+ * spawn underneath is `Bun.spawn` via the Node-shaped `BunChildProcess`
+ * wrapper in `../bun/spawn.ts` — every consumer-visible behaviour named in
+ * this file, group leadership included, is the wrapper's contract.)
  *
  * All files live in the run's directory under the daemon data root
  * (`<RUNTIME_DATA_DIR>/runs/<runId>`), which callers derive from
  * `RUNTIME_DATA_DIR`.
  */
-import { ChildProcess, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,6 +42,7 @@ import {
   terminateProcessGroup,
   type ProcessIdentity,
 } from '@open-design/platform';
+import { BunChildProcess, spawnBunChild } from '../bun/spawn.js';
 
 const STAGED_PROMPT_PREFIX = 'agent-stdin-';
 const STAGED_PROMPT_SUFFIX = '.prompt';
@@ -178,13 +181,13 @@ type AgentProcessContext = {
  *
  * Only a real OS child is ever recorded. Signalling a PID this daemon did not
  * create is the hazard the reaper's identity checks guard against, so an
- * object that merely looks like a child (no `ChildProcess`, no live PID)
+ * object that merely looks like a child (no `BunChildProcess`, no live PID)
  * records nothing.
  */
-function recordAgentProcessUntilGroupExits(child: ChildProcess, context: AgentProcessContext): void {
+function recordAgentProcessUntilGroupExits(child: BunChildProcess, context: AgentProcessContext): void {
   const pid = child.pid;
   if (
-    !(child instanceof ChildProcess)
+    !(child instanceof BunChildProcess)
     || typeof pid !== 'number'
     || !Number.isSafeInteger(pid)
     || pid <= 0
@@ -259,7 +262,7 @@ export type SpawnAgentProcessRequest = {
 };
 
 export type SpawnedAgentProcess = {
-  child: ChildProcess;
+  child: BunChildProcess;
   /** POSIX process group the agent leads (its own PID); null on Windows. */
   processGroupId: number | null;
   /** The whole prompt was handed over as the child's stdin at spawn. */
@@ -280,18 +283,23 @@ export function spawnAgentProcess(request: SpawnAgentProcessRequest): SpawnedAge
     : null;
   const stdin = staged ? staged.fd : (request.stdin as 'pipe' | 'ignore');
   const spawnedAtMs = Date.now();
-  let child: ChildProcess;
+  let child: BunChildProcess;
   try {
-    child = spawn(request.command, [...request.args], {
+    // Bun.spawn never re-escapes through a shell (shell:false has no
+    // equivalent because there is no shell path at all), and it has no
+    // windowsVerbatimArguments knob: on win32 it performs its own
+    // cmd.exe quoting for the .cmd/.bat shims invocation wraps. The
+    // request field therefore stays call-site documentation only —
+    // accepted, deliberately not forwarded. Bun also throws
+    // synchronously for a spawn failure where Node reported it
+    // asynchronously; spawnBunChild converts that back into the
+    // 'error'/'close' event shape consumers were built on, so a failed
+    // spawn still arrives here as a child object with no PID.
+    child = spawnBunChild(request.command, request.args, {
       env: request.env,
-      stdio: [stdin, 'pipe', 'pipe'],
       cwd: request.cwd,
-      shell: false,
+      stdin,
       detached,
-      // Required when invocation wraps a Windows .cmd/.bat shim through
-      // cmd.exe; without this, Node re-escapes the inner command line and
-      // breaks paths containing spaces (issue #315).
-      windowsVerbatimArguments: request.windowsVerbatimArguments,
     });
   } finally {
     staged?.releaseAfterSpawn();

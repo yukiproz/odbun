@@ -18,6 +18,10 @@
 // - Bun.spawnSync supports `timeout` (result carries
 //   `exitedDueToTimeout`, exitCode null) and also throws on ENOENT.
 
+import { EventEmitter } from 'node:events';
+import { constants as osConstants } from 'node:os';
+import { PassThrough, Readable, Writable } from 'node:stream';
+
 // ─── Shared env ─────────────────────────────────────────────────────
 
 export interface SpawnOptions {
@@ -339,4 +343,252 @@ export function execFileBun(
       }
     })();
   });
+}
+
+// ─── Node-shaped child process (agent runs, R3b) ────────────────────
+// `runtimes/agent-process.ts` needs the full node:child_process surface
+// its consumers were built on — an EventEmitter with `.pid`, Node
+// Readable stdout/stderr, a Node Writable stdin, `kill()`, `killed`,
+// `exitCode` / `signalCode`, and 'exit' / 'close' / 'error' events.
+// Bun.spawn's Subprocess is none of that, so this wrapper adapts it.
+// The exit-reporting translation is the load-bearing part:
+//
+//   Bun: signal death → `exited` RESOLVES 128+signum,
+//        `proc.exitCode === null`, `proc.signalCode === 'SIGTERM'`.
+//   Node shape consumers expect: exit/close fire with
+//        (code === null, signal === 'SIGTERM'), `exitCode === null`,
+//        `signalCode === 'SIGTERM'`.
+//
+// Semantics probed live on Bun 1.4.4 (2026-11-05):
+// - `detached: true` DOES setsid: the child's pgid equals its pid, so
+//   the daemon's `process.kill(-pgid, signal)` group signalling works
+//   exactly as it did on Node-spawned group leaders.
+// - stdin accepts a raw fd number and DUPS it at spawn, so the staged
+//   prompt file hand-off (daemon closes + unlinks its own descriptor
+//   right after spawn) is preserved byte-for-byte, delayed readers
+//   included.
+// - A spawn failure (ENOENT & friends) THROWS synchronously with the
+//   errno on `.code`; Node reports it asynchronously. The wrapper
+//   converts the throw back into Node's shape: an 'error' event on the
+//   next macrotask, then 'close' with code = -errno, `pid` undefined,
+//   `exitCode` still null.
+// - The stdin FileSink accepts writes to an already-dead child
+//   SILENTLY (no EPIPE). The PassThrough stdin below therefore never
+//   raises the EPIPE 'error' Node would emit asynchronously;
+//   consumers only ever used that event defensively (swallow EPIPE /
+//   EOF, forward the rest), so its absence removes a crash vector
+//   rather than a signal. Steering writes report `delivered` from the
+//   PassThrough's own state, matching Node's write()-time view (the
+//   race with a child exiting mid-write exists in both worlds).
+
+export interface BunChildSpawnOptions {
+  cwd?: string;
+  /** REPLACES the child environment (spawn semantics — the daemon
+   *  composes the agent env deliberately; it must not silently regain
+   *  daemon variables), except that `PWD` is always forced to the
+   *  effective cwd (the OpenCode v2 directory contract). */
+  env?: Record<string, string | undefined>;
+  /** `'pipe'` (live protocol stdin), `'ignore'`, or a raw fd number to
+   *  inherit as the child's stdin (the staged prompt file). */
+  stdin?: 'pipe' | 'ignore' | number;
+  /** POSIX: the child leads its own process group (setsid). */
+  detached?: boolean;
+}
+
+function buildReplaceEnv(opts: BunChildSpawnOptions): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(opts.env ?? {})) {
+    if (typeof v === 'string') env[k] = v;
+  }
+  env.PWD = opts.cwd ?? env.PWD ?? process.cwd();
+  return env;
+}
+
+/** Adapt one of Bun's web-readable stdio streams to a Node Readable.
+ *  `drained` settles when the web side reaches EOF or the Node stream
+ *  is destroyed — the two ways the child's 'close' may proceed. As in
+ *  Node, a stream nobody reads keeps 'close' waiting on it; every
+ *  daemon consumer attaches its readers synchronously after spawn. */
+function webToNodeReadable(web: ReadableStream<Uint8Array>): {
+  stream: Readable;
+  drained: Promise<void>;
+} {
+  const reader = web.getReader();
+  let settleDrained!: () => void;
+  const drained = new Promise<void>((resolve) => { settleDrained = resolve; });
+  const stream = new Readable({
+    read() {
+      reader.read().then(
+        ({ done, value }) => {
+          if (done) {
+            settleDrained();
+            if (!stream.destroyed) stream.push(null);
+          } else if (!stream.destroyed) {
+            stream.push(value);
+          }
+        },
+        () => {
+          // A broken read side is EOF for the wrapper's purposes; the
+          // process exit state, not the pipe, classifies the run.
+          settleDrained();
+          if (!stream.destroyed) stream.push(null);
+        },
+      );
+    },
+    destroy(err, callback) {
+      settleDrained();
+      reader.cancel().catch(() => {}).finally(() => callback(err));
+    },
+  });
+  return { stream, drained };
+}
+
+/** Node Writable stdin backed by the child's Bun FileSink. A
+ *  PassThrough carries the genuine Writable contract (write()
+ *  backpressure boolean, write callbacks, end(), destroyed, 'error'
+ *  plumbing); a pump forwards its bytes into the sink, which delivers
+ *  to the pipe without an explicit flush (probed). */
+function nodeStdinFor(proc: Bun.Subprocess): Writable {
+  const sink = proc.stdin as { write(chunk: unknown): unknown; end(): unknown };
+  const stream = new PassThrough();
+  void (async () => {
+    try {
+      for await (const chunk of stream) {
+        try { sink.write(chunk); } catch { /* child gone — sink drops silently */ }
+      }
+    } catch {
+      // Stream destroyed (teardown destroys stdio): fall through to end.
+    }
+    try { sink.end(); } catch { /* already closed */ }
+  })();
+  return stream;
+}
+
+function emptyReadable(): Readable {
+  return Readable.from([]);
+}
+
+export class BunChildProcess extends EventEmitter {
+  pid: number | undefined;
+  stdin: Writable | null = null;
+  stdout: Readable | null = null;
+  stderr: Readable | null = null;
+  /** Node shape: the exit code, or null when killed by a signal (or
+   *  not yet exited, or the spawn itself failed). */
+  exitCode: number | null = null;
+  /** Node shape: the signal that ended the child, or null. */
+  signalCode: string | null = null;
+  /** True once a kill() signal was delivered (Node sets the same flag
+   *  when `child.kill()` succeeds). */
+  killed = false;
+
+  #proc: Bun.Subprocess | null = null;
+
+  static spawn(
+    command: string,
+    args: readonly string[],
+    options: BunChildSpawnOptions = {},
+  ): BunChildProcess {
+    const child = new BunChildProcess();
+    let proc: Bun.Subprocess;
+    try {
+      proc = Bun.spawn([command, ...args], {
+        cwd: options.cwd,
+        env: buildReplaceEnv(options),
+        stdin:
+          options.stdin === 'pipe' ? 'pipe'
+          : options.stdin === 'ignore' ? 'ignore'
+          : options.stdin ?? 'ignore',
+        stdout: 'pipe',
+        stderr: 'pipe',
+        detached: options.detached === true,
+      } as Parameters<typeof Bun.spawn>[1]);
+    } catch (error) {
+      child.#attachSpawnFailure(error, options.stdin === 'pipe');
+      return child;
+    }
+    child.#attach(proc, options.stdin === 'pipe');
+    return child;
+  }
+
+  #attach(proc: Bun.Subprocess, stdinPiped: boolean): void {
+    this.#proc = proc;
+    this.pid = proc.pid;
+    const out = webToNodeReadable(proc.stdout as ReadableStream<Uint8Array>);
+    const err = webToNodeReadable(proc.stderr as ReadableStream<Uint8Array>);
+    this.stdout = out.stream;
+    this.stderr = err.stream;
+    this.stdin = stdinPiped ? nodeStdinFor(proc) : null;
+    void proc.exited.then((resolved) => {
+      // The one translation that matters: Bun resolves 128+signum for
+      // a signal death; consumers must observe Node's (null, signal).
+      const signal = proc.signalCode ?? null;
+      const code = signal !== null
+        ? null
+        : (typeof proc.exitCode === 'number' ? proc.exitCode : resolved);
+      this.exitCode = code;
+      this.signalCode = signal;
+      this.emit('exit', code, signal);
+      // Node's 'close' follows 'exit' once the stdio streams are done.
+      void Promise.all([out.drained, err.drained]).then(() => {
+        this.emit('close', code, signal);
+      });
+    });
+  }
+
+  #attachSpawnFailure(error: unknown, stdinPiped: boolean): void {
+    this.stdout = emptyReadable();
+    this.stderr = emptyReadable();
+    if (stdinPiped) {
+      // A pre-destroyed stream: steering/close paths read `destroyed`
+      // and refuse, exactly the answer for a child that never started.
+      const stream = new PassThrough();
+      stream.destroy();
+      this.stdin = stream;
+    }
+    const err = error instanceof Error ? error : new Error(String(error));
+    const errnoName = (error as { code?: unknown } | null)?.code;
+    const errno = typeof errnoName === 'string'
+      ? (osConstants.errno as Record<string, number>)[errnoName]
+      : undefined;
+    const closeCode = typeof errno === 'number' ? -errno : -2;
+    // Node delivers spawn failure asynchronously, after callers have
+    // attached their handlers; one macrotask approximates that turn.
+    setTimeout(() => {
+      // EventEmitter throws on an unlistened 'error'. Node has the
+      // same contract, but the daemon attaches its handler behind
+      // awaits — if it is not there yet, 'close' below still carries
+      // the failure into run classification, so skip instead of
+      // crashing the daemon for a timing difference.
+      if (this.listenerCount('error') > 0) this.emit('error', err);
+      this.emit('close', closeCode, null);
+    }, 0);
+  }
+
+  /** Deliver a signal to the child. Returns true when the signal was
+   *  delivered (Node's return contract — `runs.ts` escalation logic
+   *  branches on it), false when the child is already gone. */
+  kill(signal: string | number = 'SIGTERM'): boolean {
+    if (!this.#proc) return false;
+    if (this.exitCode !== null || this.signalCode !== null) return false;
+    try {
+      this.#proc.kill(signal as never);
+      this.killed = true;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/** Spawn a long-lived child with the node:child_process surface.
+ *  Never throws for a spawn failure (see BunChildProcess); throws only
+ *  for an empty command, like the other helpers in this module. */
+export function spawnBunChild(
+  command: string,
+  args: readonly string[],
+  options: BunChildSpawnOptions = {},
+): BunChildProcess {
+  if (!command) throw new Error('bun-spawn: empty command');
+  return BunChildProcess.spawn(command, args, options);
 }
