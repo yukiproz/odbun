@@ -48,7 +48,8 @@ export interface RegisterXaiRoutesDeps extends RouteDeps<'http' | 'paths'> {}
 function fetchWithRequestInit(
   requestInit: Pick<RequestInit, 'dispatcher'>,
 ): typeof fetch {
-  return (input, init) => fetch(input, { ...init, ...requestInit });
+  return ((input, init) =>
+    fetch(input, { ...init, ...requestInit })) as typeof fetch;
 }
 
 export function registerXaiRoutes(app: Express, ctx: RegisterXaiRoutesDeps) {
