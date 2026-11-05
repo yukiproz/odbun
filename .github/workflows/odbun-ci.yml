@@ -53,7 +53,11 @@ jobs:
         working-directory: port
         run: bun test
 
+      # always(): spikes probe the Bun primitives directly, so their
+      # result stays meaningful (and diagnostic) even if the adapter
+      # tests above fail. A failed step still fails this job overall.
       - name: Spikes
+        if: always()
         working-directory: port
         run: |
           bun run spikes/01-sqlite.ts
@@ -188,7 +192,11 @@ jobs:
       - name: Type gate — daemon project
         run: bun check -p apps/daemon/tsconfig.json
 
+      # always(): the tests-project gate is independent of the
+      # daemon-project gate above — report both even when the first
+      # fails. A failed step still fails this job overall.
       - name: Type gate — daemon tests project
+        if: always()
         run: bun check -p apps/daemon/tsconfig.tests.json
 
   daemon-smoke:
@@ -468,7 +476,12 @@ jobs:
         working-directory: apps/daemon
         run: ./node_modules/.bin/vitest run -c vitest.config.ts
 
+      # always(): a daemon-suite failure must not skip the web suite
+      # — its numbers are independent signal. The job still fails
+      # overall: a failed step marks the job failed even when a
+      # later always() step runs and passes.
       - name: Web Vitest suite (Node harness)
+        if: always()
         working-directory: apps/web
         run: ./node_modules/.bin/vitest run -c vitest.config.ts --maxWorkers=2
 
