@@ -468,6 +468,42 @@ function emptyReadable(): Readable {
   return Readable.from([]);
 }
 
+// ─── Signal-name translation ────────────────────────────────────────
+// Bun's published types declare `Subprocess.signalCode` as
+// `Signals | number | null`, but live probes on Bun 1.4.4 (this VM,
+// 2026-11-06) show the runtime always yields the NAME string for a
+// signal death — 'SIGTERM'/'SIGKILL'/'SIGUSR1', including kills issued
+// with a numeric signal and kills delivered from outside the process —
+// and null otherwise. The numeric arm is therefore defensive only. If
+// a future or other-platform Bun ever returns a bare signum, the
+// wrapper's Node contract (code=null, signal=<name>) must still hold,
+// so the number is translated through the inverse of
+// `os.constants.signals` instead of being dropped: dropping it would
+// misreport the death as a normal 128+signum exit. A signum with no
+// name in the table (e.g. a real-time signal between SIGRTMIN and
+// SIGRTMAX) is rendered `SIG<n>` — not a canonical name, but truthful
+// about the signum and still a signal, never an exit code.
+const SIGNAL_NAME_BY_SIGNUM: ReadonlyMap<number, string> = (() => {
+  const bySignum = new Map<number, string>();
+  for (const [name, signum] of Object.entries(osConstants.signals)) {
+    // Several names can share one signum (SIGABRT/SIGIOT = 6); the
+    // first name in the constants table wins — any of them is the
+    // correct Node-shaped answer for that signum.
+    if (typeof signum === 'number' && !bySignum.has(signum)) {
+      bySignum.set(signum, name);
+    }
+  }
+  return bySignum;
+})();
+
+function toNodeSignalName(
+  signal: string | number | null,
+): string | null {
+  if (signal === null) return null;
+  if (typeof signal === 'string') return signal;
+  return SIGNAL_NAME_BY_SIGNUM.get(signal) ?? `SIG${signal}`;
+}
+
 export class BunChildProcess extends EventEmitter {
   pid: number | undefined;
   stdin: Writable | null = null;
@@ -522,7 +558,7 @@ export class BunChildProcess extends EventEmitter {
     void proc.exited.then((resolved) => {
       // The one translation that matters: Bun resolves 128+signum for
       // a signal death; consumers must observe Node's (null, signal).
-      const signal = proc.signalCode ?? null;
+      const signal = toNodeSignalName(proc.signalCode);
       const code = signal !== null
         ? null
         : (typeof proc.exitCode === 'number' ? proc.exitCode : resolved);
