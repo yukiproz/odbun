@@ -37,20 +37,63 @@ export function resolveAgentLaunch(
   };
 }
 
+// The PATH this process was launched with, captured at module load —
+// before any caller scopes `process.env.PATH` down (sandboxed detection,
+// tests). `defaultLaunchBinDirs` resolves against it, for the same reason
+// `process.execPath` is trusted: it describes the daemon's own runtime
+// environment, not the per-request one.
+const DAEMON_LAUNCH_PATH_DIRS: readonly string[] = (process.env.PATH ?? '')
+  .split(delimiter)
+  .filter((entry) => entry.length > 0);
+
+/**
+ * The bin directories guaranteed at the front of every agent spawn PATH:
+ * the running runtime's own bin dir, plus — under Bun — the directory of
+ * a resolvable `node` executable.
+ *
+ * Upstream ran on Node, so `path.dirname(process.execPath)` alone always
+ * named a directory containing `node` — the interpreter
+ * `#!/usr/bin/env node` agent scripts (npm shims: kimi, codex wrappers, …)
+ * invoke by name. The odbun daemon runs on Bun (R3), whose execPath
+ * directory contains `bun`, not `node`; without a node dir on the spawn
+ * PATH, the version probe of every node-shebang CLI dies with exit 127
+ * and detection reports the agent unavailable whenever the effective
+ * PATH is scoped (OD_AGENT_HOME sandboxing, minimal GUI launches). The
+ * node dir is resolved against the daemon's launch PATH (captured at
+ * module load, above). When no node is resolvable the runtime dir alone
+ * is returned — a genuinely node-less machine keeps the 127 behaviour,
+ * matching what the classifier is for.
+ */
+function defaultLaunchBinDirs(): string[] {
+  const runtimeBinDir = path.dirname(process.execPath);
+  const dirs = [runtimeBinDir];
+  if (typeof Bun === 'undefined') return dirs;
+  const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
+  for (const dir of DAEMON_LAUNCH_PATH_DIRS) {
+    if (dir === runtimeBinDir) continue;
+    if (isExecutableFile(path.join(dir, nodeName))) {
+      dirs.push(dir);
+      break;
+    }
+  }
+  return dirs;
+}
+
 export function applyAgentLaunchEnv(
   env: NodeJS.ProcessEnv,
   launch: Pick<AgentLaunchResolution, 'childPathPrepend'>,
-  nodeBinDir: string = path.dirname(process.execPath),
+  nodeBinDir: string | readonly string[] = defaultLaunchBinDirs(),
   appendPathDirs: string[] = userToolchainBinDirs(),
 ): NodeJS.ProcessEnv {
   // Build the ordered list of directories to guarantee are at the front of
-  // PATH: the running Node binary directory first (so npm .cmd shims on
+  // PATH: the running runtime's binary directory first (so npm .cmd shims on
   // Windows that invoke bare "node" find the correct binary even when the
   // daemon was GUI-launched without a nodejs entry on PATH), then the agent
-  // wrapper/shim directory.  Using process.execPath as the default means
+  // wrapper/shim directory.  Using the runtime bin dirs as the default means
   // every call site — detectAgents, connection tests, and chat runs —
-  // consistently reaches the correct Node binary without each caller having
-  // to duplicate the dirname(process.execPath) prepend independently.
+  // consistently reaches the correct interpreter binaries without each caller
+  // having to duplicate the prepend independently. Under Bun the default
+  // additionally carries a resolvable `node` dir — see `defaultLaunchBinDirs`.
   //
   // `appendPathDirs` adds the user toolchain bin dirs (Homebrew, ~/.bun/bin,
   // version-manager dirs, …) to the END of PATH so a resolved binary's shebang
@@ -60,7 +103,13 @@ export function applyAgentLaunchEnv(
   // 127 ("env: bun: No such file or directory"), so detection wrongly marks it
   // unavailable. Defaults to the real toolchain dirs; tests pass [] for
   // determinism.
-  const toPrepend = [...(nodeBinDir ? [nodeBinDir] : []), ...launch.childPathPrepend];
+  const nodeBinDirs =
+    typeof nodeBinDir === 'string'
+      ? nodeBinDir
+        ? [nodeBinDir]
+        : []
+      : nodeBinDir;
+  const toPrepend = [...nodeBinDirs, ...launch.childPathPrepend];
   if (toPrepend.length === 0 && appendPathDirs.length === 0) return env;
   // Case-insensitive key lookup — Windows uses 'Path', not 'PATH'.
   // Using env.PATH directly would be undefined on Windows, yielding a

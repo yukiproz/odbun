@@ -13,21 +13,27 @@ const spawnState = vi.hoisted(() => ({
   staleCloseAfterRetrySpawn: false,
 }));
 
-vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>();
+// odbun port (R3b): agent runs spawn through `spawnBunChild`
+// (src/bun/spawn.ts, Bun.spawn underneath a Node-shaped child), not
+// node:child_process — the interception lives at that seam now. The fake
+// child below is the same EventEmitter/PassThrough shape as before; the
+// daemon's run path consumes it through the BunChildProcess-shaped
+// interface (error/close events, stdio streams, kill).
+vi.mock('../src/bun/spawn.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/bun/spawn.js')>();
   const { EventEmitter } = await import('node:events');
   const { PassThrough } = await import('node:stream');
 
   return {
     ...actual,
-    spawn: vi.fn((command, args, options) => {
+    spawnBunChild: vi.fn((command: string, args: readonly string[], options?: unknown) => {
       if (command !== spawnState.target) {
-        return actual.spawn(command, args, options);
+        return actual.spawnBunChild(command, args, options as never);
       }
 
       spawnState.targetSpawnCount += 1;
       if (spawnState.targetSpawnCount > 1) {
-        return actual.spawn(command, args, options);
+        return actual.spawnBunChild(command, args, options as never);
       }
 
       const child = new EventEmitter() as EventEmitterType & {

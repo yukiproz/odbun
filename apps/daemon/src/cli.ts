@@ -2447,14 +2447,23 @@ async function runMediaWait(rawArgs) {
 // process without waiting for pending async writes; when stdout is a pipe
 // (Windows named pipes, or large/backpressured output on any platform) the
 // final JSON line can be dropped, leaving the caller with exit 0 and empty
-// output. Writing an empty chunk with a callback resolves only after every
-// previously queued write has been flushed. The resolve callback
-// deliberately ignores the error argument (EPIPE and similar still exit
-// with the requested code).
+// output. Ending each stream resolves only after every previously queued
+// write has been flushed. The resolve callback deliberately ignores the
+// error argument (EPIPE and similar still exit with the requested code).
+//
+// odbun port note: the pre-port implementation awaited an empty-chunk
+// write callback (`process.stdout.write('', resolve)`), which Node queues
+// in order behind pending writes. Under Bun that callback is NOT ordered
+// behind a large queued write — it resolves immediately while
+// `writableLength` already reads 0, and process.exit() then discards the
+// still-draining payload (measured: a 6 MiB line truncated at 438,528
+// bytes against a throttled reader). A stream's own write callback and
+// end() ARE ordered behind the queue on both runtimes, so end() is the
+// portable flush primitive here.
 async function flushStreamsAndExit(code) {
   await Promise.all([
-    new Promise((resolve) => process.stdout.write('', resolve)),
-    new Promise((resolve) => process.stderr.write('', resolve)),
+    new Promise((resolve) => process.stdout.end(resolve)),
+    new Promise((resolve) => process.stderr.end(resolve)),
   ]);
   process.exit(code);
 }

@@ -587,6 +587,11 @@ describe('media task route recovery', () => {
     const originalHttpProxy = process.env.HTTP_PROXY;
     const originalHttpsProxy = process.env.HTTPS_PROXY;
     const originalAllProxy = process.env.ALL_PROXY;
+    const originalHttpProxyLower = process.env.http_proxy;
+    const originalHttpsProxyLower = process.env.https_proxy;
+    const originalAllProxyLower = process.env.all_proxy;
+    const originalNoProxy = process.env.NO_PROXY;
+    const originalNoProxyLower = process.env.no_proxy;
     const db = openDatabase(process.cwd(), dataDir === undefined ? {} : { dataDir });
     const projectId = `project_${randomUUID()}`;
     const now = Date.now() - 5_000;
@@ -601,6 +606,19 @@ describe('media task route recovery', () => {
     process.env.HTTP_PROXY = 'not a valid proxy url';
     delete process.env.HTTPS_PROXY;
     delete process.env.ALL_PROXY;
+    // The proxy merge prefers lowercase variants, so a lowercase
+    // proxy left in the process env would shadow the malformed
+    // uppercase value and the daemon would never see it.
+    delete process.env.http_proxy;
+    delete process.env.https_proxy;
+    delete process.env.all_proxy;
+    // Bun's fetch honours the process proxy env for the test's own
+    // loopback hop to the daemon; without a loopback NO_PROXY the
+    // malformed value poisons the client request itself (Node's fetch
+    // never read env proxies). The daemon still faces the malformed
+    // proxy for its provider traffic.
+    process.env.NO_PROXY = '127.0.0.1,localhost';
+    process.env.no_proxy = '127.0.0.1,localhost';
 
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const started = await startServer({ port: 0, returnServer: true }) as {
@@ -653,6 +671,16 @@ describe('media task route recovery', () => {
       else process.env.HTTPS_PROXY = originalHttpsProxy;
       if (originalAllProxy === undefined) delete process.env.ALL_PROXY;
       else process.env.ALL_PROXY = originalAllProxy;
+      if (originalHttpProxyLower === undefined) delete process.env.http_proxy;
+      else process.env.http_proxy = originalHttpProxyLower;
+      if (originalHttpsProxyLower === undefined) delete process.env.https_proxy;
+      else process.env.https_proxy = originalHttpsProxyLower;
+      if (originalAllProxyLower === undefined) delete process.env.all_proxy;
+      else process.env.all_proxy = originalAllProxyLower;
+      if (originalNoProxy === undefined) delete process.env.NO_PROXY;
+      else process.env.NO_PROXY = originalNoProxy;
+      if (originalNoProxyLower === undefined) delete process.env.no_proxy;
+      else process.env.no_proxy = originalNoProxyLower;
     }
   });
 });

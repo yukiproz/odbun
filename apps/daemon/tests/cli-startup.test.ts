@@ -53,10 +53,15 @@ describe('CLI startup boundaries', () => {
 
     expect(output).not.toContain('ReferenceError');
     expect(output).not.toContain('before initialization');
-    expect(output).not.toContain('CONFIG_STRING_FLAGS');
-    expect(output).not.toContain('DIAGNOSTICS_STRING_FLAGS');
-    expect(output).not.toContain('AMR_STRING_FLAGS');
-    expect(output).not.toContain('splitAutomationIds');
+    // The binding names are asserted as part of the full TDZ phrase, not
+    // bare: Bun's uncaught-error printer includes a source excerpt of the
+    // failing frame, which legitimately names these bindings on unrelated
+    // failures (e.g. ECONNREFUSED against the dead daemon URL above). A
+    // genuine TDZ regression prints the full phrase on both runtimes.
+    expect(output).not.toContain("Cannot access 'CONFIG_STRING_FLAGS' before initialization");
+    expect(output).not.toContain("Cannot access 'DIAGNOSTICS_STRING_FLAGS' before initialization");
+    expect(output).not.toContain("Cannot access 'AMR_STRING_FLAGS' before initialization");
+    expect(output).not.toContain("Cannot access 'splitAutomationIds' before initialization");
   });
 
   it('keeps od daemon start alive until SIGTERM and reports the actual listening port', async () => {

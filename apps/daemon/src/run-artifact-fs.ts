@@ -186,6 +186,10 @@ const MAX_FILES = 5000;
 // `artifact_count` funnel depends on.
 const MAX_OTHER_FILES = 5000;
 
+function compareDirentNames(a: fs.Dirent, b: fs.Dirent): number {
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
 // Cheap fingerprint for non-tracked files: size + mtime only, no content read.
 // `files_written_count` is a boolean-ish "did the run write anything" signal,
 // so the pathological same-size-same-mtime rewrite these miss is acceptable —
@@ -217,6 +221,12 @@ export function snapshotProjectArtifacts(rootDir: string): ArtifactSnapshot {
       complete = false;
       return;
     }
+    // Traversal order decides which files fall inside the budgets below,
+    // so it must be defined rather than inherited from readdir: Node
+    // returns directory order while Bun returns it reversed (measured),
+    // and either can vary by filesystem. Sort by name at every level —
+    // the async walk does the same, keeping the two snapshots identical.
+    entries.sort(compareDirentNames);
     for (const entry of entries) {
       if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) { complete = false; return; }
       if (entry.isDirectory()) {
@@ -272,6 +282,7 @@ export async function snapshotProjectArtifactsAsync(rootDir: string): Promise<Ar
       complete = false;
       return;
     }
+    entries.sort(compareDirentNames);
     for (const entry of entries) {
       if (trackedCount >= MAX_FILES && otherCount >= MAX_OTHER_FILES) { complete = false; return; }
       if (entry.isDirectory()) {

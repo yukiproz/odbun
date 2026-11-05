@@ -24,7 +24,7 @@ import type {
   AuthorizeProjectRequest,
   AuthorizeProjectToolRequest,
 } from '../collab/project-request-authority.js';
-import { proxyDispatcherRequestInit } from '../connectionTest.js';
+import { proxyDispatcherRequestInit as resolveProxyDispatcherRequestInit } from '../connectionTest.js';
 import {
   aihubmixCatalogUrl,
   parseAIHubMixCatalog,
@@ -53,6 +53,22 @@ import { mediaTaskErrorFromFailure } from '../media/task-error.js';
 import { normalizePersistedAutomationWorkspaceScope } from '../automations/workspace-scope.js';
 
 const LONG_MEDIA_PROXY_TIMEOUT_MS = 10 * 60 * 1000;
+// odbun R4 parity (same wrapper as routes/chat.ts): pre-port, building the
+// undici dispatcher threw synchronously on a malformed proxy env value, and
+// the generate handler's try/catch turned that into a failed task + a 400
+// response before any generation started. The native-fetch replacement only
+// fails later, inside the provider fetch — the task was accepted (202) and
+// failed asynchronously instead. Validating the resolved proxy URL here
+// restores the fail-fast behaviour at every call site in this module.
+function proxyDispatcherRequestInit(
+  ...args: Parameters<typeof resolveProxyDispatcherRequestInit>
+): ReturnType<typeof resolveProxyDispatcherRequestInit> {
+  const dispatcher = resolveProxyDispatcherRequestInit(...args);
+  const proxy = (dispatcher.requestInit as { proxy?: string }).proxy;
+  if (proxy) new URL(proxy);
+  return dispatcher;
+}
+
 const MEDIA_FILE_MTIME_TOLERANCE_MS = 1;
 
 function finiteNumber(value: unknown): number | null {

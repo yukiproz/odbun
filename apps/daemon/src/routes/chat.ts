@@ -33,7 +33,7 @@ import {
 } from '../integrations/aihubmix.js';
 import { isSafeId as isSafeProjectId } from '../projects.js';
 import { projectKindToTracking } from '@open-design/contracts/analytics';
-import { proxyDispatcherRequestInit, validateUserProviderBaseUrl } from '../connectionTest.js';
+import { proxyDispatcherRequestInit as resolveProxyDispatcherRequestInit, validateUserProviderBaseUrl } from '../connectionTest.js';
 import { isKnownReasoningEffort, resolveModelForServiceTier } from '../runtimes/models.js';
 import { googleStreamGenerateContentUrl } from '../integrations/google-models.js';
 import { createRoleMarkerGuard } from '../role-marker-guard.js';
@@ -62,6 +62,28 @@ const FEEDBACK_REASON_ALLOWLIST: ReadonlySet<string> = new Set([
 
 export interface RegisterChatRoutesDeps extends RouteDeps<'db' | 'design' | 'http' | 'chat' | 'agents' | 'critique' | 'validation' | 'lifecycle' | 'paths' | 'telemetry' | 'appConfig'> {
   authorizeProjectRequest: AuthorizeProjectRequest;
+}
+
+/**
+ * Fail-fast proxy resolution for the chat/proxy routes.
+ *
+ * Pre-port, the Undici dispatcher construction inside
+ * proxyDispatcherRequestInit validated the resolved proxy URL eagerly
+ * and threw on malformed proxy env — before an SSE 'start' event was
+ * sent or a JSON route touched the network, so callers' existing
+ * error handling reported the misconfiguration. The R4 native-fetch
+ * shape only carries the proxy string, and Bun's fetch does not
+ * reject an invalid proxy URL until the request is attempted (after
+ * 'start' has been sent). Validate the resolved proxy here, at
+ * construction time, to preserve the fail-fast contract.
+ */
+function proxyDispatcherRequestInit(
+  ...args: Parameters<typeof resolveProxyDispatcherRequestInit>
+): ReturnType<typeof resolveProxyDispatcherRequestInit> {
+  const dispatcher = resolveProxyDispatcherRequestInit(...args);
+  const proxy = (dispatcher.requestInit as { proxy?: string }).proxy;
+  if (proxy) new URL(proxy);
+  return dispatcher;
 }
 
 export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {

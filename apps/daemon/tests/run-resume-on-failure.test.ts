@@ -394,6 +394,13 @@ const sessionID = 'ses_provider_404_committed';
 if (process.argv.includes('--version')) { console.log('1.17.7'); process.exit(0); }
 if (process.argv.includes('--help')) { console.log('opencode run [message..]'); process.exit(0); }
 if (process.argv[2] === 'models') { console.log('test/provider-model'); process.exit(0); }
+// The port's v2 model discovery boots a one-shot \`serve --stdio\` server
+// to read model variants. That probe is not a run attempt: a real
+// opencode binary would hold the server open, and counting the probe
+// here would shift every attempt below by one (the run would land on
+// the 'Started fresh' branch and wrongly succeed). Exit quietly — the
+// probe treats a closed stream as "no variant info" and falls back.
+if (process.argv[2] === 'serve') { process.exit(0); }
 let attempts = 0;
 try { attempts = Number(fs.readFileSync(counterPath, 'utf8')) || 0; } catch {}
 fs.writeFileSync(counterPath, String(attempts + 1));
