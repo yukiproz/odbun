@@ -21,7 +21,7 @@
 //     iteration when no atom contradicts them — matches v1 stub
 //     behaviour for backwards compatibility.
 
-import type Database from 'better-sqlite3';
+import type Database from '../../bun/db.js';
 import type {
   AppliedPluginSnapshot,
   PipelineStage,

@@ -9,7 +9,7 @@
 import type { Dirent } from "node:fs";
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type Database from "better-sqlite3";
+import type Database from "./bun/db.js";
 import { parseFrontmatter } from "./design-systems/frontmatter.js";
 import type { SkillCritiquePolicy } from "./critique/rollout.js";
 import { skillCwdAliasSegment, SKILLS_CWD_ALIAS } from "./cwd-aliases.js";

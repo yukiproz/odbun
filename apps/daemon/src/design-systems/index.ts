@@ -13,7 +13,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import JSZip from 'jszip';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 
 import {
   type Brand,

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { CollabCloudComment } from '@open-design/contracts';
 import { isProjectCommentAnchorConversationId } from '../db.js';
 import { createCommentRelayOutboxStore } from './comment-relay-outbox.js';

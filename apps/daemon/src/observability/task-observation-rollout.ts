@@ -14,7 +14,7 @@ import {
   type ChildEvidenceCoverageV1,
   type OdNextRolloutDecision,
 } from '@open-design/contracts';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 
 import type { TelemetryPrefs } from '../app-config.js';
 import { buildSafeRunQualityProjectionFromDaemon } from '../langfuse-bridge.js';

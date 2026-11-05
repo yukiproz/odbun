@@ -4,7 +4,7 @@
 // Exceeding a budget fails THAT capture, never the turn — the message still
 // completes and the card honestly reports "history was not saved".
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 
 export interface ChatArtifactQuota {
   /** Largest single original blob. */

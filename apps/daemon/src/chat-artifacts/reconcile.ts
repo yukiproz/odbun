@@ -18,7 +18,7 @@
 // belong to a capture that has not reached its INSERT yet, and sweeping it
 // would break a live turn.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import fs from 'node:fs';
 
 import type { ChatArtifactBlobStore } from './blob-store.js';

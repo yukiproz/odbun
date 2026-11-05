@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { PLUGIN_SHARE_ACTION_PLUGIN_IDS } from '@open-design/contracts';
 import { upsertMessage } from '../db.js';
 import { emittedRenderableQuestionForm } from '../question-form-detect.js';

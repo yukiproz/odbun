@@ -20,7 +20,7 @@
 // run start; all snapshot wiring goes through here so the behavior stays
 // deterministic across CLI / desktop / web.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type {
   AppliedPluginSnapshot,
   AppliedStrategyBindingV2,

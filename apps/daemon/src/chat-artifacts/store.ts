@@ -5,7 +5,7 @@
 // `PRAGMA table_info` probe, and nothing here rewrites `produced_files_json`.
 // Running `migrateChatArtifacts` twice over the same file must be a no-op.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { assertCommentFileNotPending, migrateCommentFileRetirements } from '../collab/comment-file-retirements.js';
 import { randomUUID } from 'node:crypto';
 

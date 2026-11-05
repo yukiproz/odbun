@@ -20,7 +20,7 @@
  *   starts from rescanning. Dying mid-way is safe — each row is either as it
  *   was or fully healed, and the next start resumes.
  */
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 
 import {
   hasCompletedDaemonMaintenancePass,

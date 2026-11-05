@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import type * as BetterSqlite3 from 'better-sqlite3';
+import type * as BetterSqlite3 from '../../bun/db.js';
 import path from 'node:path';
 import { inlinePluginPreviewFonts } from './preview-fonts.js';
 import { findRealTagEnd, HTML_TAG_PATTERNS, prependAfterDoctype } from '@open-design/contracts/runtime/html-injection-points';

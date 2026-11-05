@@ -21,7 +21,7 @@
 // can drain it into an array.
 
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type {
   AppliedPluginSnapshot,
   PluginPipeline,

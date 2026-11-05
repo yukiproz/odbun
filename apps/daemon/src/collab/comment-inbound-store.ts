@@ -33,7 +33,7 @@
 // Scope change (account switch, stop sharing) is `forgetProject`: the other
 // scopes' cursors and ledgers go, the local comment rows stay as local copies.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { CollabCloudComment } from '@open-design/contracts';
 import type {
   CollabCloudMemberPage,

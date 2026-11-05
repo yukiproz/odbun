@@ -1,5 +1,5 @@
 import { assertCommentFileNotPending } from './comment-file-retirements.js';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { CommentFileFact } from '@open-design/contracts';
 import { ensureWorkspaceArtifactForPath, getLiveWorkspaceArtifactByPath } from '../chat-artifacts/store.js';
 import { rebindLocalCommentFileIdentity } from './comment-file-identity-recovery.js';

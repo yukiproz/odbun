@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { randomUUID } from 'node:crypto';
 import { commentFileSourceKey } from './comment-file-facts.js';
 import type { PublicFilePublicationScope } from './public-file-publication-store.js';

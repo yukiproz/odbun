@@ -1,6 +1,6 @@
 import type { StrategySettlementReasonV2, StrategySettlementFactsV2 } from '@open-design/contracts';
 import type { OdNextReply } from './protocol.js';
-import type Database from 'better-sqlite3';
+import type Database from '../../bun/db.js';
 import { countRenderableQuestionForms } from '../../question-form-detect.js';
 import { compareAndTransitionStrategyTaskExecution, getStrategyTaskExecution, type StrategyTaskExecutionRecord } from '../task-store.js';
 import type { OdNextCoordinatorResult } from './coordinator.js';

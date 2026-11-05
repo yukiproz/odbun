@@ -5,7 +5,7 @@ import { pendingCommentFileRetirements } from './collab/comment-file-retirements
 // (HTML artifacts, sketches, uploads); this database tracks the metadata
 // that used to live in localStorage.
 
-import Database from 'better-sqlite3';
+import Database from './bun/db.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -2732,7 +2732,7 @@ function normalizeIntentSignals(value: unknown): ConversationIntentSignals {
  * The read+merge+write runs inside a BEGIN IMMEDIATE transaction: the write
  * lock is taken before the read, so no other connection can commit between
  * them and clobber a previously latched bit. Within one daemon process the
- * sequence is already non-interleavable (better-sqlite3 is synchronous and
+ * sequence is already non-interleavable (the SQLite driver is synchronous and
  * there is no await point between read and write); the transaction pins the
  * monotonic guarantee against future refactors and multi-connection writers.
  */

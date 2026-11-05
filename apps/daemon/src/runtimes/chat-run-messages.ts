@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { PersistedAgentEvent } from '@open-design/contracts';
 import { MAX_ARTIFACT_FOCUS_SHOW, MAX_NEXT_STEP_SUGGESTIONS } from '@open-design/contracts';
 import type { RunFinishedProps } from '@open-design/contracts/analytics';
@@ -779,7 +779,7 @@ export function pinAssistantMessageOnRunCreate(
 
   // Atomic ownership claim (#6418). The claim is a single conditional UPDATE
   // inside an immediate transaction: the create -> claim stretch is synchronous
-  // on the single better-sqlite3 connection, so two concurrent runs sharing an
+  // on the single SQLite connection, so two concurrent runs sharing an
   // assistantMessageId can never both claim the row. `changes > 0` means THIS
   // run owns the message; `0` means another active run holds it (or it is out
   // of scope) and the run must not start — the caller drops the just-created

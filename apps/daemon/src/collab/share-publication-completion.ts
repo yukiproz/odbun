@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { SharePublishResult } from '@open-design/contracts';
 import type { PublicFilePublication, PublicFilePublicationScope } from './public-file-publication-store.js';
 import type { RecordPublicFilePublication } from './public-file-publication-recording.js';

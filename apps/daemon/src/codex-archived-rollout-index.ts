@@ -1,7 +1,7 @@
 import { lstat, realpath } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import Database from './bun/db.js';
 
 function isOwnedAndPrivate(stat: Stats): boolean {
   return !stat.isSymbolicLink()

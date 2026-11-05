@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { ensureTeamProjectCommentConversations, getWorkspaceProjectByProjectId, rebindWorkspaceProject } from '../db.js';
 import { projectResourceIdFor } from '../integrations/vela-team-projects.js';
 import type { ResourceHubPrincipal } from './resource-principal.js';

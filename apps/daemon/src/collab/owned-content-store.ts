@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 
 export interface OwnedContentScope {
   /** Exact trusted catalog root, when using the production transport. */

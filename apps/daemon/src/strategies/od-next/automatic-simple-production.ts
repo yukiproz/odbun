@@ -4,7 +4,7 @@ import type { OdNextReply } from './protocol.js';
 import { prepareMarkerContinuation } from './marker-continuation.js';
 import { settleMarkerTurn } from './marker-settlement.js';
 
-import type Database from 'better-sqlite3';
+import type Database from '../../bun/db.js';
 
 import type {
   InternalPhysicalRun,

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import Database from 'better-sqlite3';
+import Database from '../bun/db.js';
 
 export type OutboxKind = 'object' | 'feedback';
 export interface OutboxJob {

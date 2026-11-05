@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { MEDIA_FAILURE_NEXT_STEPS, type MediaFailureNextStep } from '@open-design/contracts';
 
 export type MediaTaskStatus =

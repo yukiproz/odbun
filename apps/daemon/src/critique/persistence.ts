@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import {
   CRITIQUE_RUN_STATUSES,
   type CritiquePersistedStatus,
@@ -120,7 +120,7 @@ function parseRoundsPayload(json: string): { rounds: CritiqueRoundSummary[]; rec
   }
 }
 
-// Raw row shape as returned by better-sqlite3 (snake_case column aliases).
+// Raw row shape as returned by the SQLite driver (snake_case column aliases).
 interface RawCritiqueRunRow {
   id: string;
   projectId: string;

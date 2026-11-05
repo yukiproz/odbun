@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { promises as fs } from 'node:fs';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { CritiqueConfig, PanelEvent } from '@open-design/contracts/critique';
 import { panelEventToSse } from '@open-design/contracts/critique';
 import type { CritiqueSseEvent } from '@open-design/contracts/critique';

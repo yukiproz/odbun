@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { CollabCloudComment } from '@open-design/contracts';
 import type { CommentRelayPublicationWitness } from './comment-relay-outbox.js';
 import type { PublicFilePublicationScope } from './public-file-publication-store.js';
