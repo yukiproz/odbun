@@ -8,6 +8,15 @@
 #                  daemon-tests project (fast gate; emits nothing).
 #   daemon-smoke — same install + build, then boot the daemon under
 #                  Bun and require /api/health and /api/projects 200.
+#   test-suites  — the upstream Vitest suites (daemon + web) executed
+#                  on the runner's PREINSTALLED Node (never installed
+#                  by this workflow): the gating track. Dual-track
+#                  rationale + exit condition in the job comment and
+#                  in port/TEST-SUITES.md.
+#   test-suites-bun — EXPERIMENTAL (continue-on-error): the daemon
+#                  suite on the Bun runtime — the Bun/Vitest
+#                  compatibility tracker that replaces the Node track
+#                  once fully green.
 # Recipes and evidence: port/BUILD-PROBE.md, port/SMOKE-MAIN.md.
 name: odbun-ci
 
@@ -325,3 +334,271 @@ jobs:
           kill $DPID
           wait $DPID 2>/dev/null || true
           trap - EXIT
+
+
+  # DUAL-TRACK TEST SUITES (Hadi decision, 2026-11-06 — "yang penting
+  # tes bisa jalan"). Exception, stated plainly: in this job ONLY,
+  # Node is the disposable test-harness runtime — ubuntu-latest
+  # preinstalls it; this workflow never installs Node (no setup-node).
+  # The suites were written for Node+Vitest, so a failure here is the
+  # cleanest signal about OUR PORT, free of runtime-interop noise.
+  # Product runtime, install, build and typecheck remain Bun-only.
+  # Exit condition: when the Bun track (test-suites-bun below) is
+  # fully green, this Node track retires and Bun becomes the gate.
+  # Results + triage: port/TEST-SUITES.md.
+  test-suites:
+    name: test suites (Vitest on preinstalled Node — gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun 1.4.4
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+
+      - name: Assert preinstalled Node (never installed by this workflow)
+        run: node --version
+
+      - name: Create pm-shim (pnpm dialect -> bun, for scripts/postinstall.mjs)
+        run: |
+          cat > "$RUNNER_TEMP/pm-shim" <<'ODBUN_PM_SHIM_EOF'
+          #!/usr/bin/env bash
+          # pm-shim (odbun CI variant) — translates the pnpm CLI dialect used by
+          # scripts/postinstall.mjs into Bun. Created on the fly by the odbun-ci
+          # workflow (and by the local dry run) into a temp dir; not committed.
+          # package.json parsing uses `bun -e` (never a node binary), and there is
+          # no node-gyp-bin PATH injection: node-gyp belongs to the Node native
+          # toolchain this port deletes.
+          #
+          # Supported:
+          #   pm-shim -C <dir> run <script> [args...]
+          #       -> cd <abs dir> && bun run <script> [args...]        (phase "build")
+          #   pm-shim --filter <workspace-name> rebuild <pkg> [pkg...]
+          #       -> run each named dependency's own lifecycle scripts
+          #          (preinstall -> install -> postinstall) in the workspace's
+          #          node_modules (pnpm rebuild semantics; phase "dependencies")
+          # Anything else exits 2 loudly instead of guessing.
+          set -euo pipefail
+          BUN="$(command -v bun)"
+
+          pkg_name() { "$BUN" -e 'const fs = require("fs"); try { console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).name || "") } catch { console.log("") }' "$1"; }
+          pkg_script() { "$BUN" -e 'const fs = require("fs"); try { console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).scripts?.[process.argv[2]] || "") } catch { console.log("") }' "$1" "$2"; }
+
+          run_install_script() {
+            local pkgdir="$1"
+            local storebin bindir phase script ran=0
+            storebin="$(dirname "$pkgdir")/.bin"
+            bindir="$pkgdir/node_modules/.bin"
+            for phase in preinstall install postinstall; do
+              script="$(pkg_script "$pkgdir/package.json" "$phase")"
+              [ -n "$script" ] || continue
+              ran=1
+              echo "pm-shim: running $phase script in $pkgdir: $script" >&2
+              ( cd "$pkgdir" && PATH="$storebin:$bindir:$PATH" sh -c "$script" ) || return $?
+            done
+            if [ "$ran" = "0" ]; then
+              echo "pm-shim: no lifecycle scripts in $pkgdir — nothing to rebuild" >&2
+            fi
+            return 0
+          }
+
+          if [ "${1:-}" = "-C" ] && [ $# -ge 4 ] && [ "${3:-}" = "run" ]; then
+            dir="$2"
+            script="$4"
+            shift 4
+            case "$dir" in
+              /*) abs="$dir" ;;
+              *)  abs="$PWD/$dir" ;;
+            esac
+            # NOT `bun --cwd <abs> run <script>`: silent no-op on Bun 1.4.4 (proven).
+            cd "$abs"
+            exec "$BUN" run "$script" "$@"
+          fi
+
+          if [ "${1:-}" = "--filter" ] && [ $# -ge 4 ] && [ "${3:-}" = "rebuild" ]; then
+            ws_name="$2"
+            shift 3
+            ws_dir=""
+            for d in apps/* packages/* tools/*; do
+              [ -f "$d/package.json" ] || continue
+              if [ "$(pkg_name "$PWD/$d/package.json")" = "$ws_name" ]; then
+                ws_dir="$PWD/$d"
+                break
+              fi
+            done
+            [ -n "$ws_dir" ] || { echo "pm-shim: workspace not found: $ws_name" >&2; exit 2; }
+            for pkg in "$@"; do
+              link="$ws_dir/node_modules/$pkg"
+              [ -e "$link" ] || { echo "pm-shim: $pkg not installed under $ws_name" >&2; exit 2; }
+              run_install_script "$(readlink -f "$link")"
+            done
+            exit 0
+          fi
+
+          echo "pm-shim: unsupported invocation: $*" >&2
+          exit 2
+          ODBUN_PM_SHIM_EOF
+          chmod +x "$RUNNER_TEMP/pm-shim"
+
+      - name: Filtered install (frozen lockfile)
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          bun install --ignore-scripts --frozen-lockfile \
+            --filter open-design --filter @open-design/web --filter @open-design/release \
+            --filter @open-design/contracts --filter @open-design/components \
+            --filter @open-design/platform --filter @open-design/host \
+            --filter @open-design/registry-protocol --filter @open-design/agui-adapter \
+            --filter @open-design/plugin-runtime --filter @open-design/sidecar-proto \
+            --filter @open-design/launcher-proto --filter @open-design/sidecar \
+            --filter @open-design/diagnostics --filter @open-design/daemon
+
+      - name: Closure build (postinstall + pm-shim)
+        env:
+          OPEN_DESIGN_POSTINSTALL_CONCURRENCY: "2"
+          OPEN_DESIGN_POSTINSTALL_TARGETS: '["apps/daemon","packages/host","packages/components"]'
+        run: |
+          npm_execpath="$RUNNER_TEMP/pm-shim" bun scripts/postinstall.mjs build
+          test -f apps/daemon/dist/cli.js
+
+      - name: Daemon Vitest suite (Node harness)
+        working-directory: apps/daemon
+        run: ./node_modules/.bin/vitest run -c vitest.config.ts
+
+      - name: Web Vitest suite (Node harness)
+        working-directory: apps/web
+        run: ./node_modules/.bin/vitest run -c vitest.config.ts --maxWorkers=2
+
+  # EXPERIMENTAL Bun track (companion to the gate above): the daemon
+  # suite executed on the Bun runtime itself (bunx vitest). This is
+  # the Bun/Vitest compatibility tracker — expected baseline and
+  # failure triage in port/TEST-SUITES.md. continue-on-error until
+  # it is fully green; then it becomes the gate and the Node track
+  # retires (see the dual-track note above).
+  test-suites-bun:
+    name: test suites (Vitest on Bun runtime — experimental)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun 1.4.4
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+
+      - name: Create pm-shim (pnpm dialect -> bun, for scripts/postinstall.mjs)
+        run: |
+          cat > "$RUNNER_TEMP/pm-shim" <<'ODBUN_PM_SHIM_EOF'
+          #!/usr/bin/env bash
+          # pm-shim (odbun CI variant) — translates the pnpm CLI dialect used by
+          # scripts/postinstall.mjs into Bun. Created on the fly by the odbun-ci
+          # workflow (and by the local dry run) into a temp dir; not committed.
+          # package.json parsing uses `bun -e` (never a node binary), and there is
+          # no node-gyp-bin PATH injection: node-gyp belongs to the Node native
+          # toolchain this port deletes.
+          #
+          # Supported:
+          #   pm-shim -C <dir> run <script> [args...]
+          #       -> cd <abs dir> && bun run <script> [args...]        (phase "build")
+          #   pm-shim --filter <workspace-name> rebuild <pkg> [pkg...]
+          #       -> run each named dependency's own lifecycle scripts
+          #          (preinstall -> install -> postinstall) in the workspace's
+          #          node_modules (pnpm rebuild semantics; phase "dependencies")
+          # Anything else exits 2 loudly instead of guessing.
+          set -euo pipefail
+          BUN="$(command -v bun)"
+
+          pkg_name() { "$BUN" -e 'const fs = require("fs"); try { console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).name || "") } catch { console.log("") }' "$1"; }
+          pkg_script() { "$BUN" -e 'const fs = require("fs"); try { console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).scripts?.[process.argv[2]] || "") } catch { console.log("") }' "$1" "$2"; }
+
+          run_install_script() {
+            local pkgdir="$1"
+            local storebin bindir phase script ran=0
+            storebin="$(dirname "$pkgdir")/.bin"
+            bindir="$pkgdir/node_modules/.bin"
+            for phase in preinstall install postinstall; do
+              script="$(pkg_script "$pkgdir/package.json" "$phase")"
+              [ -n "$script" ] || continue
+              ran=1
+              echo "pm-shim: running $phase script in $pkgdir: $script" >&2
+              ( cd "$pkgdir" && PATH="$storebin:$bindir:$PATH" sh -c "$script" ) || return $?
+            done
+            if [ "$ran" = "0" ]; then
+              echo "pm-shim: no lifecycle scripts in $pkgdir — nothing to rebuild" >&2
+            fi
+            return 0
+          }
+
+          if [ "${1:-}" = "-C" ] && [ $# -ge 4 ] && [ "${3:-}" = "run" ]; then
+            dir="$2"
+            script="$4"
+            shift 4
+            case "$dir" in
+              /*) abs="$dir" ;;
+              *)  abs="$PWD/$dir" ;;
+            esac
+            # NOT `bun --cwd <abs> run <script>`: silent no-op on Bun 1.4.4 (proven).
+            cd "$abs"
+            exec "$BUN" run "$script" "$@"
+          fi
+
+          if [ "${1:-}" = "--filter" ] && [ $# -ge 4 ] && [ "${3:-}" = "rebuild" ]; then
+            ws_name="$2"
+            shift 3
+            ws_dir=""
+            for d in apps/* packages/* tools/*; do
+              [ -f "$d/package.json" ] || continue
+              if [ "$(pkg_name "$PWD/$d/package.json")" = "$ws_name" ]; then
+                ws_dir="$PWD/$d"
+                break
+              fi
+            done
+            [ -n "$ws_dir" ] || { echo "pm-shim: workspace not found: $ws_name" >&2; exit 2; }
+            for pkg in "$@"; do
+              link="$ws_dir/node_modules/$pkg"
+              [ -e "$link" ] || { echo "pm-shim: $pkg not installed under $ws_name" >&2; exit 2; }
+              run_install_script "$(readlink -f "$link")"
+            done
+            exit 0
+          fi
+
+          echo "pm-shim: unsupported invocation: $*" >&2
+          exit 2
+          ODBUN_PM_SHIM_EOF
+          chmod +x "$RUNNER_TEMP/pm-shim"
+
+      - name: Filtered install (frozen lockfile)
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+        run: |
+          bun install --ignore-scripts --frozen-lockfile \
+            --filter open-design --filter @open-design/web --filter @open-design/release \
+            --filter @open-design/contracts --filter @open-design/components \
+            --filter @open-design/platform --filter @open-design/host \
+            --filter @open-design/registry-protocol --filter @open-design/agui-adapter \
+            --filter @open-design/plugin-runtime --filter @open-design/sidecar-proto \
+            --filter @open-design/launcher-proto --filter @open-design/sidecar \
+            --filter @open-design/diagnostics --filter @open-design/daemon
+
+      - name: Closure build (postinstall + pm-shim)
+        env:
+          OPEN_DESIGN_POSTINSTALL_CONCURRENCY: "2"
+          OPEN_DESIGN_POSTINSTALL_TARGETS: '["apps/daemon","packages/host","packages/components"]'
+        run: |
+          npm_execpath="$RUNNER_TEMP/pm-shim" bun scripts/postinstall.mjs build
+          test -f apps/daemon/dist/cli.js
+
+      # --bun is load-bearing: plain `bunx vitest` honours the vitest
+      # bin's `#!/usr/bin/env node` shebang and silently delegates to
+      # any node on PATH (proven locally by process inspection,
+      # port/TEST-SUITES.md §2) — the job would secretly be a second
+      # Node track. --bun forces the Bun runtime.
+      - name: Daemon Vitest suite on the Bun runtime
+        working-directory: apps/daemon
+        run: bunx --bun vitest run -c vitest.config.ts
