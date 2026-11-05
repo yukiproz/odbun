@@ -16,6 +16,7 @@ import {
   parseStableCodexVersion,
   preflightCodexDefaultModel,
 } from '../../src/runtimes/codex-model-preflight.js';
+import { isBun } from '../helpers/runtime.js';
 
 // These fixtures own the CLI/config layers, including absence of host MDM.
 vi.mock('../../src/runtimes/invocation.js', async (importOriginal) => {
@@ -112,7 +113,11 @@ describe('Codex model capability preflight', () => {
     expect(parseStableCodexVersion('codex-cli unknown')).toBeNull();
   });
 
-  it('blocks the known-old stable CLI only with confirmed ChatGPT auth', async () => {
+  // Bun-only code path: the CLI version/login probes run the real
+  // execFileBun in-process; under the Node harness the probes return
+  // null and the preflight degrades to `unknown`. Runs on the Bun
+  // track. See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('blocks the known-old stable CLI only with confirmed ChatGPT auth', async () => {
     const fixture = await createFixture({
       config: 'model = "gpt-5.6-terra"\n',
       version: 'codex-cli 0.142.5',
@@ -132,7 +137,9 @@ describe('Codex model capability preflight', () => {
     });
   });
 
-  it('fails open when a system config layer can override the endpoint', async () => {
+  // Bun-only code path: needs a successful execFileBun version probe
+  // before the system-config layer is even consulted (§4.2).
+  it.skipIf(!isBun)('fails open when a system config layer can override the endpoint', async () => {
     const fixture = await createFixture({
       config: 'model = "gpt-5.6-terra"\n',
       version: 'codex-cli 0.142.5',
@@ -160,7 +167,8 @@ describe('Codex model capability preflight', () => {
     });
   });
 
-  it('allows 0.143.0 even when no model catalog command exists', async () => {
+  // Bun-only code path: needs a successful execFileBun version probe (§4.2).
+  it.skipIf(!isBun)('allows 0.143.0 even when no model catalog command exists', async () => {
     const fixture = await createFixture({
       config: 'model = "gpt-5.6-terra"\n',
       version: 'codex-cli 0.143.0',
@@ -279,7 +287,9 @@ describe('Codex model capability preflight', () => {
     },
   );
 
-  it('fails open for config overlays, API auth, and unconfirmed ChatGPT auth', async () => {
+  // Bun-only code path: the auth scenarios need the real execFileBun
+  // login-status probe to run (§4.2).
+  it.skipIf(!isBun)('fails open for config overlays, API auth, and unconfirmed ChatGPT auth', async () => {
     const overlay = await createFixture({
       config: [
         'model = "gpt-5.6-terra"',
@@ -366,7 +376,9 @@ describe('Codex model capability preflight', () => {
     });
   });
 
-  it('fails open for prerelease versions and models without a known requirement', async () => {
+  // Bun-only code path: asserts the fake CLI was actually probed via
+  // execFileBun (probe-count file) and parsed (§4.2).
+  it.skipIf(!isBun)('fails open for prerelease versions and models without a known requirement', async () => {
     const prerelease = await createFixture({
       config: 'model = "gpt-5.6-terra"\n',
       version: 'codex-cli 0.145.0-alpha.30',
