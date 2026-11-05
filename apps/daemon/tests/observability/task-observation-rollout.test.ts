@@ -11,6 +11,7 @@ import {
 } from '@open-design/contracts';
 import Database from '../../src/bun/db.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fetchMock } from '../helpers/fetch-double.js';
 
 import { closeDatabase, openDatabase, upsertMessage } from '../../src/db.js';
 
@@ -291,7 +292,7 @@ describe('task observation rollout', () => {
     observeDiscoveryEvent(run, { event: 'diagnostic', data: { type: 'skill_discovery_policy', injected: true, skillRoot } });
     observeDiscoveryEvent(run, { event: 'agent', data: { type: 'tool_use', id: 'read-doc', name: 'Read', input: { file_path: `${skillRoot}/document.md` } } });
     observeDiscoveryEvent(run, { event: 'agent', data: { type: 'tool_result', toolUseId: 'read-doc', content: 'Private body sentinel.' } });
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     await expect(service({ mode: 'send', dataDir: tempDir, fetchImpl, getRun: () => run }).finalizeForRun('run-1')).resolves.toMatchObject({ action: 'sent' });
     const batch = JSON.parse(String(fetchImpl.mock.calls[0]![1]!.body)).batch as Array<{ type: string; body: Record<string, unknown> }>;
     expect(batch.find(event => event.type === 'trace-create')?.body).toMatchObject({ metadata: {
@@ -301,7 +302,7 @@ describe('task observation rollout', () => {
   });
 
   it('keeps the mapped run version when restart finalization replaces single-run telemetry', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     const startedVersion = {
       version: '0.21.1',
       channel: 'stable',
@@ -412,7 +413,7 @@ describe('task observation rollout', () => {
     mode,
     expectedStatus,
   }) => {
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = fetchMock();
     const rollout = service({
       mode,
       fetchImpl,
@@ -442,7 +443,7 @@ describe('task observation rollout', () => {
   });
 
   it('keeps the first compatibility decision sticky across later mode changes', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     expect(await service({ mode: 'off', fetchImpl }).finalizeForRun('run-1')).toMatchObject({
       mode: 'off',
       action: 'compatibility',
@@ -473,7 +474,7 @@ describe('task observation rollout', () => {
 
   it('keeps an observed row terminal when rollout later advances to send', async () => {
     await service({ mode: 'observe' }).finalizeForRun('run-1');
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     const send = service({ mode: 'send', fetchImpl });
     expect(send.config.mode).toBe('send');
     expect(send.modeForRun('run-1')).toBe('observe');
@@ -521,7 +522,7 @@ describe('task observation rollout', () => {
   });
 
   it.each(['legacy', 'otlp'] as const)('exposes actual %s payload trace ID after export and across restart', async (mode) => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     const rollout = service({ mode: 'send', env: { LANGFUSE_EXPORTER_MODE: mode }, dataDir: tempDir, fetchImpl });
     expect(rollout.telemetryForRun('run-1')?.traceId).toBeNull();
     await rollout.finalizeForRun('run-1');
@@ -541,7 +542,7 @@ describe('task observation rollout', () => {
   });
 
   it('sends one task root with environment tags and never resends a finalized task', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     const rollout = service({ mode: 'send', fetchImpl });
 
     await expect(rollout.finalizeForRun('run-1')).resolves.toMatchObject({
@@ -629,7 +630,7 @@ describe('task observation rollout', () => {
         ...syntheticRun().events,
       ],
     };
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
 
     await expect(service({
       mode: 'send',
@@ -672,7 +673,7 @@ describe('task observation rollout', () => {
         sections: [{ kind: 'odNextExactFinalText', content: exact.text }] }),
       finalText: exact.text, persisted: exact, stage: 'request',
     });
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     await expect(service({ mode: 'send', fetchImpl,
       getRun: (runId) => runId === 'run-1' ? { ...syntheticRun(), promptTelemetry } : null,
     }).finalizeForRun('run-1')).resolves.toMatchObject({ action: 'sent' });
@@ -694,7 +695,7 @@ describe('task observation rollout', () => {
       persisted: mapping.finalText,
       stage: mapping.inputStage,
     });
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
 
     await expect(service({
       mode: 'send',
@@ -747,7 +748,7 @@ describe('task observation rollout', () => {
       stage: mapping.inputStage,
     });
     tamper(promptTelemetry);
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
 
     await expect(service({
       mode: 'send',
@@ -761,7 +762,7 @@ describe('task observation rollout', () => {
 
   it('exports a mapped pre-compose failure as Prompt unavailable', async () => {
     const { promptTelemetry: _promptTelemetry, ...preComposeFailure } = syntheticRun();
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
 
     await expect(service({
       mode: 'send',
@@ -811,7 +812,7 @@ describe('task observation rollout', () => {
       ],
     });
     const requests: string[] = [];
-    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+    const fetchImpl = fetchMock(async (_url, init) => {
       requests.push(String(init?.body));
       return acceptedResponse();
     });
@@ -920,7 +921,7 @@ describe('task observation rollout', () => {
       ],
     };
     const requests: string[] = [];
-    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+    const fetchImpl = fetchMock(async (_url, init) => {
       requests.push(String(init?.body));
       return acceptedResponse();
     });
@@ -1042,7 +1043,7 @@ describe('task observation rollout', () => {
       settlementFacts: { physicalStatus: 'succeeded', deliverableValid: true, todoUnfinished: true },
       updatedAt: 2_000,
     });
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     const rollout = service({
       mode: 'send',
       fetchImpl,
@@ -1099,7 +1100,7 @@ describe('task observation rollout', () => {
     { metrics: false, content: false, reason: 'metrics_consent_off' },
     { metrics: true, content: false, reason: 'content_consent_off' },
   ])('makes zero requests when consent is disabled: $reason', async (prefs) => {
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = fetchMock();
     const rollout = service({
       mode: 'send',
       fetchImpl,
@@ -1117,7 +1118,7 @@ describe('task observation rollout', () => {
   });
 
   it('caps each boot at first attempt plus one retry and replays a pending failure next boot', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => new Response('down', { status: 503 }));
+    const fetchImpl = fetchMock(async () => new Response('down', { status: 503 }));
     const rollout = service({
       mode: 'send',
       fetchImpl,
@@ -1133,14 +1134,14 @@ describe('task observation rollout', () => {
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
 
-    const restartedFetch = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const restartedFetch = fetchMock(async () => acceptedResponse());
     const restarted = service({ mode: 'send', fetchImpl: restartedFetch });
     await expect(restarted.reconcileCrashWindows()).resolves.toBe(1);
     expect(restartedFetch).toHaveBeenCalledOnce();
   });
 
   it('atomically claims one concurrent terminal report and sends exactly once', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     const rollout = service({ mode: 'send', fetchImpl });
 
     const results = await Promise.all([
@@ -1159,7 +1160,7 @@ describe('task observation rollout', () => {
 
   it('establishes durable task truth before an online network completion', async () => {
     let acceptRequest: ((response: Response) => void) | undefined;
-    const fetchImpl = vi.fn<typeof fetch>(() => new Promise<Response>((resolve) => {
+    const fetchImpl = fetchMock(() => new Promise<Response>((resolve) => {
       acceptRequest = resolve;
     }));
     const rollout = service({ mode: 'send', fetchImpl });
@@ -1189,7 +1190,7 @@ describe('task observation rollout', () => {
          SET outcome = 'running', updated_at = 1500
        WHERE task_execution_id = 'task-1'
     `).run();
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     const rollout = service({ mode: 'send', fetchImpl });
 
     const handle = rollout.beginFinalizeForRun('run-1');
@@ -1219,7 +1220,7 @@ describe('task observation rollout', () => {
   });
 
   it('releases deterministic pre-network aggregate failures to sticky compatibility', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = fetchMock();
     const rollout = service({
       mode: 'send',
       fetchImpl,
@@ -1239,14 +1240,14 @@ describe('task observation rollout', () => {
       dropReason: 'payload_build_error',
     });
 
-    const restartedFetch = vi.fn<typeof fetch>();
+    const restartedFetch = fetchMock();
     await expect(service({ mode: 'send', fetchImpl: restartedFetch }).reconcileCrashWindows())
       .resolves.toBe(0);
     expect(restartedFetch).not.toHaveBeenCalled();
   });
 
   it('returns expected transport failures to pending and attempts each task once per boot', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => new Response('down', { status: 503 }));
+    const fetchImpl = fetchMock(async () => new Response('down', { status: 503 }));
     const rollout = service({ mode: 'send', fetchImpl });
 
     await expect(rollout.finalizeForRun('run-1')).resolves.toMatchObject({
@@ -1268,7 +1269,7 @@ describe('task observation rollout', () => {
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
 
-    const restartedFetch = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const restartedFetch = fetchMock(async () => acceptedResponse());
     const restarted = service({ mode: 'send', fetchImpl: restartedFetch });
     await expect(restarted.reconcileCrashWindows()).resolves.toBe(1);
     expect(restartedFetch).toHaveBeenCalledOnce();
@@ -1298,7 +1299,7 @@ describe('task observation rollout', () => {
   it.each(['off', 'observe', 'send'] as const)(
     'persists a privacy tombstone before %s eligibility can release or send',
     async (mode) => {
-      const fetchImpl = vi.fn<typeof fetch>();
+      const fetchImpl = fetchMock();
       const rollout = service({
         mode,
         fetchImpl,
@@ -1328,7 +1329,7 @@ describe('task observation rollout', () => {
          SET outcome = 'running', updated_at = 2000
        WHERE task_execution_id = 'task-1'
     `).run();
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = fetchMock();
     const checkpointMappedRun = vi.fn();
     const rollout = service({
       mode: 'send',
@@ -1386,7 +1387,7 @@ describe('task observation rollout', () => {
   it.each(['accepted', 'failed'] as const)(
     'checks current privacy before releasing an ordinary %s sibling to compatibility',
     async (status) => {
-      const fetchImpl = vi.fn<typeof fetch>();
+      const fetchImpl = fetchMock();
       const rollout = service({
         mode: 'send',
         fetchImpl,
@@ -1567,7 +1568,7 @@ describe('task observation rollout', () => {
     `).run(idempotencyKey);
     expect(first.diagnostic().readyToSend).toBe(true);
 
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     const restarted = service({
       mode: 'send',
       fetchImpl,
@@ -1597,7 +1598,7 @@ describe('task observation rollout', () => {
       attemptCount: 0,
     });
 
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = fetchMock();
     const restarted = service({
       mode: 'send',
       fetchImpl,
@@ -1648,7 +1649,7 @@ describe('task observation rollout', () => {
         finalizedAt: 2_000,
       },
     }));
-    const taskFetch = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const taskFetch = fetchMock(async () => acceptedResponse());
     const restarted = service({ mode: 'send', fetchImpl: taskFetch });
 
     await reconcileDurableRunTerminals({
@@ -1692,7 +1693,7 @@ describe('task observation rollout', () => {
       createdAt: 1_000,
       updatedAt: 2_000,
     }));
-    const taskFetch = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const taskFetch = fetchMock(async () => acceptedResponse());
     const rollout = service({
       mode: 'send',
       fetchImpl: taskFetch,
@@ -1744,7 +1745,7 @@ describe('task observation rollout', () => {
 
   it('upgrades ordinary-first startup compatibility when a later sibling has a privacy fact', async () => {
     seedSecondMappedRun();
-    const taskFetch = vi.fn<typeof fetch>();
+    const taskFetch = fetchMock();
     const rollout = service({ mode: 'send', fetchImpl: taskFetch });
     await rollout.seedRepresentationFromRunFact('run-1', {
       langfuseCompletedAt: 1_900,
@@ -1836,7 +1837,7 @@ describe('task observation rollout', () => {
         finalizedAt: 2_000,
       },
     }));
-    const taskFetch = vi.fn<typeof fetch>();
+    const taskFetch = fetchMock();
     const rollout = service({
       mode: 'send',
       fetchImpl: taskFetch,
@@ -1890,7 +1891,7 @@ describe('task observation rollout', () => {
         finalizedAt: 1_900,
       },
     }));
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = fetchMock();
     const rollout = service({
       mode: 'send',
       fetchImpl,
@@ -1944,7 +1945,7 @@ describe('task observation rollout', () => {
       createdAt: 1_000,
       updatedAt: 2_000,
     }));
-    const taskFetch = vi.fn<typeof fetch>();
+    const taskFetch = fetchMock();
     const rollout = service({
       mode: 'observe',
       fetchImpl: taskFetch,
@@ -2006,7 +2007,7 @@ describe('task observation rollout', () => {
         startedAt: 1_900,
       },
     }));
-    const taskFetch = vi.fn<typeof fetch>();
+    const taskFetch = fetchMock();
     const rollout = service({ mode: 'send', fetchImpl: taskFetch });
     const legacySingleRunReport = vi.fn(async () => ({
       langfuse_expected: true,
@@ -2057,7 +2058,7 @@ describe('task observation rollout', () => {
     { exporterMode: 'dual', path: '/api/public/ingestion' },
     { exporterMode: 'otlp', path: '/api/public/otel/v1/traces' },
   ])('uses one network protocol in $exporterMode mode', async ({ exporterMode, path: expectedPath }) => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => acceptedResponse());
+    const fetchImpl = fetchMock(async () => acceptedResponse());
     const rollout = service({
       mode: 'send',
       fetchImpl,
@@ -2078,7 +2079,7 @@ describe('task observation rollout', () => {
 
   it('uses authenticated Vela for Task hierarchy and persists its actual remote receipt', async () => {
     const remoteTraceId = 'b'.repeat(64);
-    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({
+    const fetchImpl = fetchMock(async () => Response.json({
       ok: true,
       receipt: { clientTraceId: 'strategy-task:task-1', scopedTraceId: remoteTraceId },
     }, { status: 202 }));
@@ -2140,7 +2141,7 @@ describe('task observation rollout', () => {
 
   it.each([null, { clientTraceId: 'another-task', scopedTraceId: 'a'.repeat(64) }])(
     'does not invent a remote identity or resend when the accepted receipt is invalid: %j', async (receipt) => {
-      const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({ ok: true, receipt }, { status: 202 }));
+      const fetchImpl = fetchMock(async () => Response.json({ ok: true, receipt }, { status: 202 }));
       const rollout = service({ mode: 'send', fetchImpl, dataDir: tempDir, env: {
         OPEN_DESIGN_VELA_TELEMETRY: 'on', VELA_CONTROL_KEY: 'synthetic-key', VELA_API_URL: 'https://vela.example.test',
       } });
@@ -2152,7 +2153,7 @@ describe('task observation rollout', () => {
   );
 
   it('does not hide an unrelated Vela validation error with anonymous fallback', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => Response.json({
+    const fetchImpl = fetchMock(async () => Response.json({
       error: 'invalid_open_design_telemetry_payload',
       issues: [{ path: 'events.0.data.id', message: 'invalid id' }],
     }, { status: 400 }));
@@ -2165,7 +2166,7 @@ describe('task observation rollout', () => {
   });
 
   it('falls back once for an older Vela Task schema and records the actual relay identity', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async (url) => String(url).includes('vela.example')
+    const fetchImpl = fetchMock(async (url) => String(url).includes('vela.example')
       ? Response.json({
         error: 'invalid_open_design_telemetry_payload',
         issues: [{ path: 'events.0.data.name', message: 'trace name must be open-design-turn' }],
@@ -2188,7 +2189,7 @@ describe('task observation rollout', () => {
 
   it('never falls back through Vela when the selected Task relay rejects auth', async () => {
     let requestCount = 0;
-    const fetchImpl = vi.fn<typeof fetch>(async () => {
+    const fetchImpl = fetchMock(async () => {
       requestCount += 1;
       const status = requestCount === 1 ? 401 : 503;
       return new Response('', { status });
@@ -2230,7 +2231,7 @@ describe('task observation rollout', () => {
   });
 
   it('uses the effective relay sink with the same durable task idempotency key', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => new Response('', { status: 202 }));
+    const fetchImpl = fetchMock(async () => new Response('', { status: 202 }));
     const rollout = service({
       mode: 'send',
       fetchImpl,
@@ -2254,7 +2255,7 @@ describe('task observation rollout', () => {
   });
 
   it('blocks send locally when environment/tag are missing without touching the sink', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = fetchMock();
     const rollout = service({
       mode: 'send',
       fetchImpl,

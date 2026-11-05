@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { fetchMock } from './helpers/fetch-double.js';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -219,7 +220,7 @@ describe('composio config', () => {
     await useTempComposioStore();
     writeComposioConfig({ apiKey: 'cmp_test' });
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+    globalThis.fetch = fetchMock(async (input: Parameters<typeof fetch>[0]) => {
       const parsed = new URL(input.toString(), 'https://backend.composio.dev');
       if (parsed.pathname === '/api/v3/auth_configs') {
         return composioJson({
@@ -262,7 +263,7 @@ describe('composio config', () => {
         });
       }
       return composioJson({ items: [] });
-    }) as typeof fetch;
+    });
 
     try {
       const definition = await composioConnectorProvider.getPreviewDefinition('notion', {

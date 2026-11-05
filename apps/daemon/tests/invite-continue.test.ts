@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 import { consumeInviteContinuation } from '../src/collab/invite-continue.js';
 
 const SESSION = { profile: 'prod', apiUrl: 'https://vela.example', controlKey: 'ck-1', user: null, configMtimeMs: null };
@@ -43,13 +44,13 @@ function jsonResponse(status: number, body: unknown): Response {
 describe('consumeInviteContinuation', () => {
   it.each(['personal', 'team'] as const)('accepts an active free %s member without a paid plan or available seat', async (workspaceType) => {
     const out = await consumeInviteContinuation('nonce-free-member', {
-      fetch: (async () => jsonResponse(200, {
+      fetch: completeFetch(async () => jsonResponse(200, {
         ...CONSUME_BODY,
         currentWorkspaceContext: {
           ...B_CONTEXT, workspaceType, role: 'member', planId: 'free', billingState: 'free',
           seatSummary: { seatLimit: 1, usedSeats: 1, availableSeats: 0, isSeatFull: true },
         },
-      })) as typeof fetch,
+      })),
       readSession: () => SESSION,
     });
     expect(out.ok).toBe(true);

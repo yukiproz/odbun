@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promises as dns } from 'node:dns';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 import { imageSize, stockSearch, StockSearchServiceError } from '../src/media/stock-search.js';
 import { searchVelaStockPhotos, type StockSearchServiceReport } from '../src/media/vela-stock-search.js';
 
@@ -11,7 +12,7 @@ const candidate = (id = 'hero') => ({ id, status: 'ok' as const, provider: 'pexe
   downloadUrl: 'https://images.pexels.com/photos/1/test.jpeg', alt: 'Dog in a park', sourceUrl: 'https://www.pexels.com/photo/1/',
   author: 'Ann', license: 'Pexels License', attempts: [] });
 const report = (ids = ['hero']): StockSearchServiceReport => ({ providers: ['pexels'], slots: ids.map(candidate) });
-const fetchImage = () => (async () => new Response(new Uint8Array(JPEG))) as typeof fetch;
+const fetchImage = () => completeFetch(async () => new Response(new Uint8Array(JPEG)));
 
 describe('company stock search and authorized local downloads', () => {
   let cwd: string;
@@ -31,7 +32,7 @@ describe('company stock search and authorized local downloads', () => {
 
   it('rejects an HTML error page returned with HTTP 200 instead of saving a successful image', async () => {
     const result = await stockSearch({ cwd, slots: [{ id: 'hero', query: 'dog' }], search: async () => report(),
-      fetch: (async () => new Response('<html>upstream unavailable</html>')) as typeof fetch });
+      fetch: completeFetch(async () => new Response('<html>upstream unavailable</html>')) });
     expect(result.slots[0]?.status).toBe('error');
     await expect(readFile(path.join(cwd, 'assets/stock/hero.jpg'))).rejects.toThrow();
   });
@@ -62,7 +63,7 @@ describe('company stock search and authorized local downloads', () => {
   it('blocks private and HTTP redirect targets before contacting them', async () => {
     for (const location of ['https://169.254.169.254/latest/meta-data/', 'http://93.184.216.35/image.jpg']) {
       const fetcher = vi.fn(async () => new Response(null, { status: 302, headers: { location } }));
-      const result = await stockSearch({ cwd, slots: [{ id: 'hero', query: 'dog' }], search: async () => report(), fetch: fetcher as typeof fetch });
+      const result = await stockSearch({ cwd, slots: [{ id: 'hero', query: 'dog' }], search: async () => report(), fetch: completeFetch(fetcher) });
       expect(result.slots[0]?.status).toBe('error');
       expect(fetcher).toHaveBeenCalledTimes(1);
     }
@@ -95,7 +96,7 @@ describe('company stock search and authorized local downloads', () => {
 
   it('rejects a declared oversized download before reading its body', async () => {
     const result = await stockSearch({ cwd, slots: [{ id: 'hero', query: 'dog' }], search: async () => report(),
-      fetch: (async () => new Response(new Uint8Array(JPEG), { headers: { 'content-length': String(11 * 1024 * 1024) } })) as typeof fetch });
+      fetch: completeFetch(async () => new Response(new Uint8Array(JPEG), { headers: { 'content-length': String(11 * 1024 * 1024) } })) });
     expect(result.slots[0]?.status).toBe('error');
   });
 

@@ -1,6 +1,7 @@
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 import { extractWithLLM } from '../src/memory-llm.js';
 import { memoryDir, writeMemoryConfig } from '../src/memory.js';
 import { __resetExtractionsForTests } from '../src/memory-extractions.js';
@@ -24,7 +25,7 @@ describe('memory-llm Google fast-model default', () => {
   it('uses gemini-3.5-flash (not a shut-down 2.0 model) when chatProvider omits a model', async () => {
     let capturedUrl: string | null = null;
 
-    globalThis.fetch = async (input: Parameters<typeof fetch>[0]) => {
+    globalThis.fetch = completeFetch(async (input: Parameters<typeof fetch>[0]) => {
       const url =
         typeof input === 'string'
           ? input
@@ -39,7 +40,7 @@ describe('memory-llm Google fast-model default', () => {
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
-    };
+    });
 
     await extractWithLLM(
       dataDir,

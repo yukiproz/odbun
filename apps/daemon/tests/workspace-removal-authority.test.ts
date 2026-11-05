@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 import type { WorkspaceDirectoryItem } from '@open-design/contracts';
 import { createWorkspaceDirectoryAuthorityBroker, fetchVelaWorkspaceDirectory } from '../src/collab/vela-workspace-context.js';
 import { cancelRevokedWorkspaceRuns, createWorkspaceMembershipRevocationObserver } from '../src/collab/cancel-revoked-workspace-runs.js';
@@ -17,14 +18,14 @@ describe('membership cancellation through accepted directory authority', () => {
       const observer = createWorkspaceMembershipRevocationObserver((workspaceId, memberId) => {
         cancellations.push(cancelRevokedWorkspaceRuns({ list: () => [affected, unrelated], cancel }, workspaceId, memberId));
       });
-      const fetch: typeof globalThis.fetch = async () => {
+      const fetch: typeof globalThis.fetch = completeFetch(async () => {
         if (next === 'initial') return Response.json({ items: [member('a'), member('b')] });
         if (next === 'removed') return Response.json({ items: [member('b')] });
         if (failure === 'network') throw new TypeError('offline');
         if (failure === 'missing-items') return Response.json({});
         if (failure === 'invalid-row') return Response.json({ items: [member('b'), { workspaceId: 'a' }] });
         return Response.json({ error: 'unauthorized' }, { status: failure });
-      };
+      });
       const broker = createWorkspaceDirectoryAuthorityBroker({
         identityKey: () => 'account',
         fetchDirectory: () => fetchVelaWorkspaceDirectory({ fetch, readSession: () => session }),

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
+import { completeFetch } from '../../helpers/fetch-double.js';
 import { PendingAuthCache } from '../../../src/mcp-oauth.js';
 import {
   XAI_OAUTH_AUTHORIZATION_ENDPOINT,
@@ -21,10 +22,10 @@ type FetchInit = Parameters<typeof fetch>[1];
 function makeFetch(
   handler: (url: string, init?: FetchInit) => Promise<Response> | Response,
 ) {
-  return async (input: FetchInput, init?: FetchInit): Promise<Response> => {
+  return completeFetch(async (input: FetchInput, init?: FetchInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input.toString();
     return handler(url, init);
-  };
+  });
 }
 
 describe('xaiRedirectUri', () => {

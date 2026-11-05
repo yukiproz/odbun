@@ -2,6 +2,7 @@ import { promises as fsp } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fetchMock } from './helpers/fetch-double.js';
 
 import { defineConnectorTool, type ConnectorCatalogDefinition } from '../src/connectors/catalog.js';
 import type { ConnectorService } from '../src/connectors/service.js';
@@ -85,7 +86,7 @@ describe('connector memory extraction', () => {
   beforeEach(async () => {
     await fsp.rm(memoryDir(dataDir), { recursive: true, force: true });
     __resetExtractionsForTests();
-    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+    globalThis.fetch = fetchMock(async () => new Response(JSON.stringify({
       choices: [
         {
           message: {
@@ -105,7 +106,7 @@ describe('connector memory extraction', () => {
     }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
+    }));
     await writeMemoryConfig(dataDir, {
       extraction: {
         provider: 'openai',
@@ -681,7 +682,7 @@ describe('connector memory extraction', () => {
   });
 
   it('does not invent suggestions when the model finds no design memory', async () => {
-    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+    globalThis.fetch = fetchMock(async () => new Response(JSON.stringify({
       choices: [
         {
           message: {
@@ -692,7 +693,7 @@ describe('connector memory extraction', () => {
     }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
+    }));
     const service = createNotionService();
 
     const result = await suggestMemoryFromConnectors(dataDir, {
@@ -707,7 +708,7 @@ describe('connector memory extraction', () => {
   });
 
   it('keeps derived read summaries out of suggested memories', async () => {
-    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+    globalThis.fetch = fetchMock(async () => new Response(JSON.stringify({
       choices: [
         {
           message: {
@@ -718,7 +719,7 @@ describe('connector memory extraction', () => {
     }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
+    }));
     const service = {
       ...createNotionService(),
       execute: async (request: { connectorId: string; toolName: string; input: unknown }) => ({
@@ -756,7 +757,7 @@ describe('connector memory extraction', () => {
   });
 
   it('filters connector meta copy even when the model returns it', async () => {
-    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+    globalThis.fetch = fetchMock(async () => new Response(JSON.stringify({
       choices: [
         {
           message: {
@@ -782,7 +783,7 @@ describe('connector memory extraction', () => {
     }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
+    }));
 
     const result = await suggestMemoryFromConnectors(dataDir, {
       projectsRoot: process.cwd(),

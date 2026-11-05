@@ -1,7 +1,9 @@
 import type http from 'node:http';
+import type { ReadableStreamDefaultReader } from 'node:stream/web';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { completeFetch } from '../helpers/fetch-double.js';
 
 import {
   memoryDir,
@@ -42,7 +44,7 @@ beforeAll(async () => {
   })) as StartedServer;
   baseUrl = started.url;
   server = started.server;
-  globalThis.fetch = async (
+  globalThis.fetch = completeFetch(async (
     input: Parameters<typeof fetch>[0],
     init?: Parameters<typeof fetch>[1],
   ) => {
@@ -61,7 +63,7 @@ beforeAll(async () => {
         headers: { 'content-type': 'application/json' },
       },
     );
-  };
+  });
 });
 
 afterAll(async () => {

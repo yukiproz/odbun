@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 
 import {
   DEFAULT_WHATS_NEW_URL,
@@ -95,10 +96,10 @@ describe('createWhatsNewService', () => {
     let calls = 0;
     const service = createWhatsNewService({
       env: {},
-      fetchImpl: async () => {
+      fetchImpl: completeFetch(async () => {
         calls += 1;
         return jsonResponse(DOC);
-      },
+      }),
     });
     const first = await service.readWhatsNew('stable');
     const second = await service.readWhatsNew('stable');
@@ -111,9 +112,9 @@ describe('createWhatsNewService', () => {
   it('skips the network entirely on non-release channels', async () => {
     const service = createWhatsNewService({
       env: {},
-      fetchImpl: async () => {
+      fetchImpl: completeFetch(async () => {
         throw new Error('must not fetch');
-      },
+      }),
     });
     const result = await service.readWhatsNew('development');
     expect(result.id).toBeNull();
@@ -124,9 +125,9 @@ describe('createWhatsNewService', () => {
   it('resolves to null content instead of failing when the document is unreachable', async () => {
     const service = createWhatsNewService({
       env: {},
-      fetchImpl: async () => {
+      fetchImpl: completeFetch(async () => {
         throw new Error('offline');
-      },
+      }),
     });
     const result = await service.readWhatsNew('stable');
     expect(result.id).toBeNull();
@@ -137,7 +138,7 @@ describe('createWhatsNewService', () => {
   it('resolves to null content on a non-OK response', async () => {
     const service = createWhatsNewService({
       env: {},
-      fetchImpl: async () => jsonResponse({ error: 'nope' }, 404),
+      fetchImpl: completeFetch(async () => jsonResponse({ error: 'nope' }, 404)),
     });
     const result = await service.readWhatsNew('stable');
     expect(result.content).toBeNull();

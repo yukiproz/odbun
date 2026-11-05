@@ -1,4 +1,5 @@
 import { test } from 'vitest';
+import { completeFetch } from '../helpers/fetch-double.js';
 import { createLiveArtifactsMcpTools, handleLiveArtifactsMcpRequest } from '../../src/mcp-live-artifacts-server.js';
 import { AGENT_DEFS, assert, buildLiveArtifactsMcpServersForAgent, hermes, kimi } from './helpers/test-helpers.js';
 
@@ -102,10 +103,10 @@ test('live artifact MCP connector list forwards daily digest use case to daemon 
   process.env.OD_DAEMON_URL = 'http://127.0.0.1:17456/base';
   process.env.OD_TOOL_TOKEN = 'test-tool-token';
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-  globalThis.fetch = async (url, init) => {
+  globalThis.fetch = completeFetch(async (url, init) => {
     calls.push({ url: String(url), init });
     return new Response(JSON.stringify({ connectors: [] }), { status: 200 });
-  };
+  });
 
   const response = await handleLiveArtifactsMcpRequest({
     jsonrpc: '2.0',
@@ -125,10 +126,10 @@ test('live artifact MCP create forwards input and artifact payload fields to dae
   process.env.OD_DAEMON_URL = 'http://127.0.0.1:17456';
   process.env.OD_TOOL_TOKEN = 'test-tool-token';
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-  globalThis.fetch = async (url, init) => {
+  globalThis.fetch = completeFetch(async (url, init) => {
     calls.push({ url: String(url), init });
     return new Response(JSON.stringify({ artifact: { id: 'artifact-1' } }), { status: 200 });
-  };
+  });
 
   const input = { title: 'Demo', preview: { type: 'html', entry: 'index.html' } };
   const templateHtml = '<h1>{{data.title}}</h1>';
@@ -153,10 +154,10 @@ test('live artifact MCP update preserves nested input and artifact payload field
   process.env.OD_DAEMON_URL = 'http://127.0.0.1:17456';
   process.env.OD_TOOL_TOKEN = 'test-tool-token';
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-  globalThis.fetch = async (url, init) => {
+  globalThis.fetch = completeFetch(async (url, init) => {
     calls.push({ url: String(url), init });
     return new Response(JSON.stringify({ artifact: { id: 'artifact-1', title: 'Updated' } }), { status: 200 });
-  };
+  });
 
   const input = { title: 'Updated', pinned: true };
   const templateHtml = '<p>{{data.value}}</p>';

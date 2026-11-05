@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { fetchMock } from './helpers/fetch-double.js';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import type { runPinnedVelaCommand } from '../src/collab/vela-pinned-command.js';
@@ -49,7 +50,7 @@ function fixture(items = [member]) {
   const captured = session();
   const readSession = vi.fn(() => captured);
   const fetchDirectory = vi.fn<typeof fetchVelaWorkspaceDirectory>(async () => ({ ok: true, items }));
-  const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ status: 'stopped' })));
+  const fetchImpl = fetchMock(async () => new Response(JSON.stringify({ status: 'stopped' })));
   const runCommand = vi.fn<typeof runPinnedVelaCommand>().mockResolvedValue(JSON.stringify(deletedReceipt));
   return { captured, readSession, fetchDirectory, fetchImpl, runCommand, prepare: createVelaPublicFileStop({ readSession, fetchDirectory, fetch: fetchImpl, runCommand, dataRoot: tmpdir() }) };
 }
@@ -76,7 +77,7 @@ it.each([
   const f = fixture([item]); expect(await f.prepare(key)).toBeNull(); expect(f.fetchImpl).not.toHaveBeenCalled();
 });
 it('defers without a session or a verified directory', async () => {
-  const fetchImpl = vi.fn<typeof fetch>();
+  const fetchImpl = fetchMock();
   expect(await createVelaPublicFileStop({ dataRoot: tmpdir(), readSession: () => null, fetch: fetchImpl })(key)).toBeNull();
   const f = fixture(); f.fetchDirectory.mockResolvedValue({ ok: false, items: [], reason: 'network' });
   expect(await f.prepare(key)).toBeNull(); expect(fetchImpl).not.toHaveBeenCalled();

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { completeFetch } from '../helpers/fetch-double.js';
 import {
   closeDatabase,
   ensureWorkspaceProject,
@@ -132,7 +133,7 @@ describe('MEM-009 local project transfer', () => {
     const session = { apiUrl: 'https://amr.example.test', controlKey: 'test-control-key' } as any;
     const source = createVelaMemberRemovalTransferSource({
       configuredEnv: () => ({}),
-      fetch: fetchImpl as typeof fetch,
+      fetch: completeFetch(fetchImpl),
       readSession: () => session,
     });
     await expect(createMemberRemovalProjectReconciler({ db, source })(workspaceId, ownerMemberId))

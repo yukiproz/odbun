@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { completeFetch } from '../../helpers/fetch-double.js';
 import { resolveXAIBearer } from '../../../src/integrations/xai-credentials.js';
 import { setXAIToken, type StoredXAIToken } from '../../../src/integrations/xai-tokens.js';
 
@@ -10,21 +11,21 @@ type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
 
 function fetchOk(body: unknown, status = 200) {
-  return async (_input: FetchInput, _init?: FetchInit): Promise<Response> => {
+  return completeFetch(async (_input: FetchInput, _init?: FetchInit): Promise<Response> => {
     return new Response(JSON.stringify(body), {
       status,
       headers: { 'content-type': 'application/json' },
     });
-  };
+  });
 }
 
 function fetchAlwaysFails(status = 400, body = '{"error":"invalid_grant"}') {
-  return async (): Promise<Response> => {
+  return completeFetch(async (): Promise<Response> => {
     return new Response(body, {
       status,
       headers: { 'content-type': 'application/json' },
     });
-  };
+  });
 }
 
 describe('resolveXAIBearer', () => {

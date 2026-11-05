@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { completeFetch } from '../helpers/fetch-double.js';
 import { managedYtDlpPath, resolveYtDlp, YT_DLP_VERSION, ytDlpBuild } from '../../src/media/yt-dlp.js';
 
 describe('pinned yt-dlp', () => {
@@ -33,7 +34,7 @@ describe('pinned yt-dlp', () => {
     const tools = await mkdtemp(path.join(os.tmpdir(), 'ytdlp-')); dirs.push(tools);
     const fake = Buffer.from('not the real binary');
     expect(createHash('sha256').update(fake).digest('hex')).not.toBe(ytDlpBuild()?.sha256);
-    const fetcher = (async () => new Response(fake, { status: 200 })) as typeof fetch;
+    const fetcher = completeFetch(async () => new Response(fake, { status: 200 }));
     expect(await resolveYtDlp(tools, fetcher)).toBeNull();
   });
 

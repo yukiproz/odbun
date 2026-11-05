@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 
 import {
   AssetCacheError,
@@ -182,10 +183,10 @@ describe('createPluginAssetCache', () => {
     let calls = 0;
     const cache = createPluginAssetCache({
       cacheDir: dir,
-      fetchImpl: (async () => {
+      fetchImpl: completeFetch(async () => {
         calls += 1;
         return pngResponse();
-      }) as typeof fetch,
+      }),
     });
     const url = 'https://res.cloudinary.com/x/portal_bg.png';
     const first = await cache.get(url);
@@ -204,11 +205,11 @@ describe('createPluginAssetCache', () => {
     let calls = 0;
     const cache = createPluginAssetCache({
       cacheDir: dir,
-      fetchImpl: (async () => {
+      fetchImpl: completeFetch(async () => {
         calls += 1;
         await new Promise((r) => setTimeout(r, 10));
         return pngResponse();
-      }) as typeof fetch,
+      }),
     });
     const url = 'https://images.higgs.ai/a/b.jpg';
     const [a, b] = await Promise.all([cache.get(url), cache.get(url)]);
@@ -220,11 +221,11 @@ describe('createPluginAssetCache', () => {
   it('derives content-type from the extension when the header is generic', async () => {
     const cache = createPluginAssetCache({
       cacheDir: dir,
-      fetchImpl: (async () =>
+      fetchImpl: completeFetch(async () =>
         new Response(Buffer.alloc(4, 2), {
           status: 200,
           headers: { 'content-type': 'application/octet-stream' },
-        })) as typeof fetch,
+        })),
     });
     const out = await cache.get('https://cdn.example.com/clip.mp4');
     expect(out.contentType).toBe('video/mp4');
@@ -234,7 +235,7 @@ describe('createPluginAssetCache', () => {
     const cache = createPluginAssetCache({
       cacheDir: dir,
       maxBytes: 16,
-      fetchImpl: (async () => pngResponse(1024)) as typeof fetch,
+      fetchImpl: completeFetch(async () => pngResponse(1024)),
     });
     await expect(cache.get('https://res.cloudinary.com/x/big.png')).rejects.toMatchObject({ status: 413 });
   });
@@ -252,8 +253,8 @@ describe('createPluginAssetCache', () => {
     const cache = createPluginAssetCache({
       cacheDir: dir,
       maxBytes: 16, // two 8-byte chunks fit; the third must trip the cap
-      fetchImpl: (async () =>
-        new Response(stream, { status: 200, headers: { 'content-type': 'image/png' } })) as typeof fetch,
+      fetchImpl: completeFetch(async () =>
+        new Response(stream, { status: 200, headers: { 'content-type': 'image/png' } })),
     });
     await expect(cache.get('https://res.cloudinary.com/x/stream.png')).rejects.toMatchObject({ status: 413 });
     // It must abort after a few chunks, NOT drain all 100 (no full buffering).
@@ -264,10 +265,10 @@ describe('createPluginAssetCache', () => {
     let calls = 0;
     const cache = createPluginAssetCache({
       cacheDir: dir,
-      fetchImpl: (async () => {
+      fetchImpl: completeFetch(async () => {
         calls += 1;
         return pngResponse();
-      }) as typeof fetch,
+      }),
     });
     await expect(cache.get('https://cdn.example.com/app.js')).rejects.toMatchObject({ status: 400 });
     expect(calls).toBe(0);
@@ -277,10 +278,10 @@ describe('createPluginAssetCache', () => {
     let calls = 0;
     const cache = createPluginAssetCache({
       cacheDir: dir,
-      fetchImpl: (async () => {
+      fetchImpl: completeFetch(async () => {
         calls += 1;
         return pngResponse();
-      }) as typeof fetch,
+      }),
     });
     // 169.254.169.254 is the cloud metadata endpoint — must never be fetched.
     await expect(cache.get('https://169.254.169.254/x.png')).rejects.toMatchObject({ status: 400 });

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 import { createWorkspaceInvite } from '../src/collab/invite-create.js';
 
 const SESSION = {
@@ -41,7 +42,7 @@ describe('createWorkspaceInvite', () => {
   ])('does not count delivery status %s as sent', async (deliveryStatus, error) => {
     const out = await createWorkspaceInvite(
       { email: 'new@company.com', role: 'member', workspaceId: 'ws-team-1' },
-      { fetch: (async () => jsonResponse(201, { id: 'inv-9', deliveryStatus })) as typeof fetch,
+      { fetch: completeFetch(async () => jsonResponse(201, { id: 'inv-9', deliveryStatus })),
         readSession: () => SESSION },
     );
     expect(out).toMatchObject({ ok: false, error });
@@ -50,7 +51,7 @@ describe('createWorkspaceInvite', () => {
   it('rejects a sent response with no invite identity', async () => {
     const out = await createWorkspaceInvite(
       { email: 'new@company.com', role: 'member', workspaceId: 'ws-team-1' },
-      { fetch: (async () => jsonResponse(201, { deliveryStatus: 'sent' })) as typeof fetch,
+      { fetch: completeFetch(async () => jsonResponse(201, { deliveryStatus: 'sent' })),
         readSession: () => SESSION },
     );
     expect(out).toMatchObject({ ok: false, error: 'create_invalid_response' });
@@ -166,6 +167,6 @@ describe('createWorkspaceInvite', () => {
 
 it('forwards the unchanged invitation operation key for explicit delivery retries', async () => {
  const fetcher=vi.fn(async()=>jsonResponse(200,{id:'invite',deliveryStatus:'sent'}));
- await createWorkspaceInvite({email:'new@example.test',role:'member',workspaceId:'workspace',idempotencyKey:'stable-row-operation'}, {fetch:fetcher as typeof fetch,readSession:()=>SESSION});
+ await createWorkspaceInvite({email:'new@example.test',role:'member',workspaceId:'workspace',idempotencyKey:'stable-row-operation'}, {fetch:completeFetch(fetcher),readSession:()=>SESSION});
  expect((fetcher.mock.calls[0] as unknown as [unknown,RequestInit])[1].headers).toMatchObject({'Idempotency-Key':'stable-row-operation'});
 });

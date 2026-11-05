@@ -3,6 +3,7 @@ import fs, { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 import type { WorkspaceDirectoryItem } from '@open-design/contracts';
 import {
   createCachedWorkspaceDirectoryFetcher,
@@ -258,7 +259,7 @@ describe('createCachedWorkspaceDirectoryFetcher', () => {
     async (status) => {
       await expect(fetchVelaWorkspaceDirectory({
         readSession: () => SESSION,
-        fetch: async () => jsonResponse(status, { error: 'unauthenticated' }),
+        fetch: completeFetch(async () => jsonResponse(status, { error: 'unauthenticated' })),
       })).resolves.toEqual({
         ok: false,
         items: [],
@@ -291,7 +292,7 @@ describe('createCachedWorkspaceDirectoryFetcher', () => {
 
     await expect(fetchVelaWorkspaceDirectory({
       configuredEnv,
-      fetch: async () => jsonResponse(401, { error: 'unauthenticated' }),
+      fetch: completeFetch(async () => jsonResponse(401, { error: 'unauthenticated' })),
     })).resolves.toMatchObject({
       ok: false,
       reason: 'unauthorized',
@@ -307,9 +308,9 @@ describe('createCachedWorkspaceDirectoryFetcher', () => {
   it('keeps a transport failure distinct from an expired authorization result', async () => {
     await expect(fetchVelaWorkspaceDirectory({
       readSession: () => SESSION,
-      fetch: async () => {
+      fetch: completeFetch(async () => {
         throw new TypeError('fetch failed');
-      },
+      }),
     })).resolves.toEqual({
       ok: false,
       items: [],
@@ -1193,11 +1194,11 @@ describe('createVelaWorkspaceContextProvider explicit local scope', () => {
       ok: true as const,
       items: [B_DIRECTORY_ITEM],
     }));
-    const directFetch = vi.fn(async () => {
+    const directFetch = vi.fn(async (..._args: Parameters<typeof fetch>) => {
       throw new Error('direct directory fetch must stay behind the broker');
-    }) as unknown as typeof fetch;
+    });
     const provider = createVelaWorkspaceContextProvider({
-      fetch: directFetch,
+      fetch: completeFetch(directFetch),
       fetchWorkspaceDirectory,
       readSession: () => SESSION,
       getActiveWorkspaceId: () => B_DIRECTORY_ITEM.workspaceId,
@@ -1214,7 +1215,7 @@ describe('createVelaWorkspaceContextProvider explicit local scope', () => {
     expect(fetchWorkspaceDirectory).toHaveBeenCalledTimes(2);
     // Only the optional count enrichment bypasses the directory broker.
     expect(directFetch).toHaveBeenCalledOnce();
-    expect(String((directFetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]))
+    expect(String(directFetch.mock.calls[0]?.[0]))
       .toBe('https://vela.example/api/v1/workspaces/current');
   });
 
@@ -1254,7 +1255,7 @@ describe('createVelaWorkspaceContextProvider exact member count enrichment', () 
         seatSummary: { seatLimit: 999, usedSeats: 999 },
       }));
       const provider = createVelaWorkspaceContextProvider({
-        fetch: fetchImpl as typeof fetch,
+        fetch: completeFetch(fetchImpl),
         readSession: () => SESSION,
         fetchWorkspaceDirectory: async () => ({ ok: true, items: [item] }),
         getActiveWorkspaceId: () => 'unrelated-page-workspace',
@@ -1290,7 +1291,7 @@ describe('createVelaWorkspaceContextProvider exact member count enrichment', () 
     { memberCount: Number.MAX_SAFE_INTEGER + 1 },
   ])('omits count for a mismatched, unavailable or invalid context %j', async (delta) => {
     const provider = createVelaWorkspaceContextProvider({
-      fetch: async () => jsonResponse(200, { ...B_TEAM_CONTEXT, ...delta }),
+      fetch: completeFetch(async () => jsonResponse(200, { ...B_TEAM_CONTEXT, ...delta })),
       readSession: () => SESSION,
       fetchWorkspaceDirectory: async () => ({ ok: true, items: [B_DIRECTORY_ITEM] }),
     });
@@ -1300,7 +1301,7 @@ describe('createVelaWorkspaceContextProvider exact member count enrichment', () 
 
   it.each([403, 404, 500])('omits unavailable count on HTTP %s without changing original context', async (status) => {
     const provider = createVelaWorkspaceContextProvider({
-      fetch: async () => jsonResponse(status, { error: 'unavailable' }),
+      fetch: completeFetch(async () => jsonResponse(status, { error: 'unavailable' })),
       readSession: () => SESSION,
       fetchWorkspaceDirectory: async () => ({ ok: true, items: [B_DIRECTORY_ITEM] }),
     });
@@ -1313,10 +1314,10 @@ describe('createVelaWorkspaceContextProvider exact member count enrichment', () 
     try {
       let signal: AbortSignal | undefined;
       const provider = createVelaWorkspaceContextProvider({
-        fetch: async (_url, init) => new Promise<Response>((_resolve, reject) => {
+        fetch: completeFetch(async (_url, init) => new Promise<Response>((_resolve, reject) => {
           signal = init?.signal as AbortSignal;
           signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
-        }),
+        })),
         readSession: () => SESSION,
         fetchWorkspaceDirectory: async () => ({ ok: true, items: [B_DIRECTORY_ITEM] }),
         timeoutMs: 50,
@@ -1341,7 +1342,7 @@ describe('createVelaWorkspaceContextProvider exact member count enrichment', () 
       { ok: true, items: [{ ...B_DIRECTORY_ITEM, memberStatus: 'removed' as const }] },
     ]) {
       const provider = createVelaWorkspaceContextProvider({
-        fetch: fetchImpl as typeof fetch,
+        fetch: completeFetch(fetchImpl),
         readSession: () => SESSION,
         fetchWorkspaceDirectory: async () => result,
       });
@@ -1365,7 +1366,7 @@ describe('createVelaWorkspaceContextProvider exact member count enrichment', () 
     });
     const readSession = vi.fn(() => session);
     const provider = createVelaWorkspaceContextProvider({
-      fetch: fetchImpl as typeof fetch,
+      fetch: completeFetch(fetchImpl),
       readSession,
       getActiveWorkspaceId: () => selected,
     });
@@ -1649,7 +1650,7 @@ describe('workspace authority failure evidence', () => {
   it('records the cloud failure without changing its public result or retaining the credential', async () => {
     const record = vi.spyOn(diagnosticEvidence, 'recordDiagnosticFailure').mockImplementation(() => undefined);
     try {
-      const result = await fetchVelaWorkspaceDirectory({ readSession: () => SESSION, fetch: async () => jsonResponse(503, {}) });
+      const result = await fetchVelaWorkspaceDirectory({ readSession: () => SESSION, fetch: completeFetch(async () => jsonResponse(503, {}) )});
       expect(result).toEqual({ ok: false, items: [], reason: 'upstream', status: 503 });
       expect(record).toHaveBeenCalledWith(expect.objectContaining({ source: 'workspace-directory', status: 503 }));
       expect(record.mock.calls[0]![0]).not.toHaveProperty('controlKey');

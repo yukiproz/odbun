@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -113,11 +114,11 @@ describe('Collab cloud member page adapter', () => {
   };
   const fixtureClient = (body: unknown, status = 200, seen?: string[]) => createCollabCloudClient({
     config: { baseUrl: 'https://example.test', token: null },
-    fetch: async (input, init) => {
+    fetch: completeFetch(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       seen?.push(String(input));
       expect(new Headers(init?.headers).get('if-none-match')).toBeNull();
       return new Response(JSON.stringify(body), { status });
-    },
+    }),
   });
 
   it('uses the project page route with explicit member author kind and no conditional request', async () => {

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { completeFetch } from './helpers/fetch-double.js';
 import { stockSearch } from '../src/media/stock-search.js';
 import { STOCK_TELEMETRY_LIMITS, collectStockTelemetry, createStockRecorder, parseStockJournal, readStockJournal, startStockTelemetryCollector, stockTelemetryDir } from '../src/media/stock-telemetry.js';
 import { captureStockAnalyticsBatch } from '../src/analytics.js';
@@ -40,7 +41,7 @@ it('uploads a maximum six-channel batch rather than retrying forever at the lega
   const journal = await readStockJournal(cwd, recorder.callId);
   expect(journal?.events).toHaveLength(210);
   const fetcher = vi.fn(async () => Response.json({ status: 1 }));
-  expect(await captureStockAnalyticsBatch({ dataDir: cwd, events: journal!.events, sessionId: recorder.callId, appVersion: 'test', env: { POSTHOG_KEY: 'phc_test' }, fetch: fetcher as typeof fetch })).toBe('uploaded');
+  expect(await captureStockAnalyticsBatch({ dataDir: cwd, events: journal!.events, sessionId: recorder.callId, appVersion: 'test', env: { POSTHOG_KEY: 'phc_test' }, fetch: completeFetch(fetcher) })).toBe('uploaded');
   expect(fetcher).toHaveBeenCalledOnce();
 });
 
