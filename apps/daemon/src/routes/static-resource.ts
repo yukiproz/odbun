@@ -1,5 +1,5 @@
 import type { Express, Response } from 'express';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import type {

@@ -11,7 +11,7 @@
 // Handing out a URL for a half-written snapshot renders as a broken image,
 // which is strictly worse than the live-preview fallback it displaced.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { ProjectFileKind } from '@open-design/contracts';
 
 import {

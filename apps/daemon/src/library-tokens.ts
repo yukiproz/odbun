@@ -7,7 +7,7 @@
 // allowlist the `/api` origin middleware consults. The allowlist is seeded
 // from SQLite on daemon boot so a paired extension survives restarts.
 
-import type Database from 'better-sqlite3';
+import type Database from './bun/db.js';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import type { LibraryConnectionStatus } from '@open-design/contracts';
 import {

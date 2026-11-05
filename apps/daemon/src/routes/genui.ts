@@ -1,5 +1,5 @@
 import type { Express } from 'express';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 
 import { applyDiffReviewDecisionToCwd, getSnapshot, isDiffReviewSurfaceId, listIterationsForRun } from '../plugins/index.js';
 import { getProject } from '../db.js';

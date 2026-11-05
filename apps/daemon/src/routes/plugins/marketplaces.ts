@@ -1,5 +1,5 @@
 import type { Express, Request } from 'express';
-import type * as BetterSqlite3 from 'better-sqlite3';
+import type * as BetterSqlite3 from '../../bun/db.js';
 
 type MarketplaceTrust = 'trusted' | 'restricted' | 'official';
 

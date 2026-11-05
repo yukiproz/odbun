@@ -13,7 +13,7 @@
 //     reproducibility wins over freshness.
 
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { readPluginEnvKnobs } from '../app-config.js';
 import {
   OPEN_DESIGN_PLUGIN_SPEC_VERSION,

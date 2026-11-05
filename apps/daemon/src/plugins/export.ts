@@ -19,7 +19,7 @@
 
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { AppliedPluginSnapshot } from '@open-design/contracts';
 import { getInstalledPlugin } from './registry.js';
 import { getSnapshot } from './snapshots.js';

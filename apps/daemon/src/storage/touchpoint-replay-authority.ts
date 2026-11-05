@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import Database from '../bun/db.js';
 
 /**
  * POSIX directory synchronization errors fail closed. Windows has no portable

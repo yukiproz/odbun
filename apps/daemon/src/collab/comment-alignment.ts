@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { COMMENT_ALIGN_REASONS, type CommentAlignProjection, type CommentAlignRequest, type CommentAlignResult, type WorkspaceCollabContext } from '@open-design/contracts';

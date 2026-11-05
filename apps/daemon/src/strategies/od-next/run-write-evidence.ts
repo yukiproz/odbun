@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../../bun/db.js';
 
 import { runFilesWrittenForRun, type RunSideEffectLedger } from '../../runtimes/run-lifecycle-analytics.js';
 import { getStrategyTaskExecutionByRunId, InvalidStrategyTaskRecordError } from '../task-store.js';

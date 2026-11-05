@@ -16,7 +16,7 @@
 
 import { manifestSourceDigest, resolveContext, validateSafe, type RegistryView } from '@open-design/plugin-runtime';
 import type { InstalledPluginRecord, PluginManifest } from '@open-design/contracts';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { findAtom, isImplementedAtom, isKnownAtom } from './atoms.js';
 import { validateConnectorRefs, type ConnectorProbe } from './connector-gate.js';
 import { isParseableUntil } from './until.js';

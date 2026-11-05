@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { PublicFileMutations } from './public-file-mutations.js';
 import { cancelPersonalCommentRelayOutbox } from './comment-relay-outbox.js';
 import { randomUUID } from 'node:crypto';

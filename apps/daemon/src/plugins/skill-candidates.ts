@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type {
   SkillPluginCandidate,
   SkillPluginCandidateSourceRef,

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { PreviewComment } from '@open-design/contracts';
 import { ensureProjectCommentAnchorConversation, getProjectPreviewComment, getWorkspaceProjectByProjectId, isProjectCommentAnchorConversationId } from '../db.js';
 import { previewCommentToCloud } from './collab-cloud-service.js';

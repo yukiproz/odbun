@@ -12,7 +12,7 @@
 // slice: the recorded enrichment task marks those stages `skipped` so the UI
 // can later offer a reindex once a model is configured.
 
-import type Database from 'better-sqlite3';
+import type Database from './bun/db.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';

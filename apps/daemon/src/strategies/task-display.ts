@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { eventsHaveAuthenticatedDoneConclusion, type TaskDisplayProjection, type StrategySettlementFactsV2 } from '@open-design/contracts';
 import type { StrategyTaskExecutionRecord } from './task-store.js';
 import { getMessage } from '../db.js';

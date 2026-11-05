@@ -18,7 +18,7 @@
 // plug in critique-theater scoring, build-test signals, etc. without
 // changing the public contract.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type {
   AppliedPluginSnapshot,
   GenUISurfaceSpec,

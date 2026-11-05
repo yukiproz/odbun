@@ -2,13 +2,13 @@
 //
 // Spec §15.6 calls out a Postgres adapter so multi-replica daemons
 // can share state behind a load balancer. v1 ships local SQLite via
-// better-sqlite3 (already in `apps/daemon/src/db.ts`). The full lift
+// bun:sqlite (already in `apps/daemon/src/db.ts`). The full lift
 // is a substantial migration; this module is the substrate slice
 // that pins the parameter surface so a follow-up PR can land the
 // adapter without re-litigating the env-var contract.
 //
 // Today's resolver simply records the operator's choice; the
-// existing better-sqlite3 path is the only reachable backend.
+// existing bun:sqlite path is the only reachable backend.
 // `OD_DAEMON_DB=postgres` returns a stub that throws when used so
 // a misconfigured operator sees a clear error instead of silently
 // dropping writes onto a non-existent backend.

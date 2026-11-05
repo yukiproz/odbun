@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { ShareContentFreshness } from '@open-design/contracts';
 import type { PublicFilePublicationScope, PublicFilePublicationRevision, PublicFilePublicationStore } from './public-file-publication-store.js';
 

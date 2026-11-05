@@ -24,7 +24,7 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import * as path from 'node:path';
-import Database from 'better-sqlite3';
+import Database from '../bun/db.js';
 import type {
   FinalizeAnthropicRequest,
   FinalizeAnthropicResponse,

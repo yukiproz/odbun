@@ -8,7 +8,7 @@
 // `genui_surfaces` from anywhere else — the F8 invariant relies on a single
 // writer.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type {
   GenUISurfaceSpec,
 } from '@open-design/contracts';

@@ -2,7 +2,7 @@ import { composeColdProductionBundle } from './cold-production.js';
 import type { MarkerCompletionEvidence } from './marker-settlement.js';
 import type { OdNextReply } from './protocol.js';
 import { composeOdNextMarkerProductionTurn, renderChatTurnHostProtocolInstructions } from '@open-design/contracts';
-import type Database from 'better-sqlite3';
+import type Database from '../../bun/db.js';
 import type { InternalPhysicalRun, InternalRunCreateInput, InternalRunCreationService } from '../../services/internal-run-service.js';
 import { mintRunDoneKey } from '../../runtimes/run-done-key.js';
 import { compareAndTransitionStrategyTaskExecution, getStrategyTaskExecutionByRunId, type StrategyTaskExecutionRecord } from '../task-store.js';

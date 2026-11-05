@@ -9,7 +9,7 @@
 // This module is pure persistence — no filesystem writes, no hashing, no HTTP.
 // Higher-level orchestration (storage, enrichment) lives in `library.ts`.
 
-import type Database from 'better-sqlite3';
+import type Database from './bun/db.js';
 import { randomUUID } from 'node:crypto';
 import type {
   LibraryAsset,

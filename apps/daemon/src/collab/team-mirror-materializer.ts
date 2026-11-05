@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database from '../bun/db.js';
 import { commentFilesAtReceipt, parseCommentFileState } from './comment-file-facts.js';
 
 import {

@@ -15,7 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { safeExternalFetch } from './plugin-asset-cache.js';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import {
   parseMarketplace,
   type MarketplaceParseResult,

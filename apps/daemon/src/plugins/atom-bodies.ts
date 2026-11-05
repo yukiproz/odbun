@@ -14,7 +14,7 @@
 
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { getInstalledPlugin } from './registry.js';
 
 type SqliteDb = Database.Database;

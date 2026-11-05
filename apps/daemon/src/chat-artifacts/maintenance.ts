@@ -12,7 +12,7 @@
 // function on purpose. Two copies would drift, and the drift would only ever
 // show up on long-running daemons — the case with the least observation.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 
 import type { ChatArtifactBlobStore } from './blob-store.js';
 import { sweepChatArtifactStorage, type ChatArtifactGcReport } from './gc.js';

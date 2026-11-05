@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import Database from 'better-sqlite3';
+import Database from '../bun/db.js';
 
 export interface DiagnosticIncident {
   id: string; sourceId: string; createdAt: number; state: 'collect' | 'pending' | 'delivered' | 'discarded';

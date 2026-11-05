@@ -1,7 +1,7 @@
 import { assertNoPendingCommentFileRetirements } from './comment-file-retirements.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { getProject, getWorkspaceProjectByProjectId } from '../db.js';
 import type { runVelaCommand } from '../integrations/vela-command.js';
 import { parseCommentFileState } from './comment-file-facts.js';

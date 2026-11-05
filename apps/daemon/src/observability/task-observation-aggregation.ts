@@ -16,7 +16,7 @@ import {
   type StrategyInputStageV2,
   type StrategySettlementFactsV2,
 } from '@open-design/contracts';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { EvalContextV2 } from './eval-context.js';
 
 import type { TelemetryPrefs } from '../app-config.js';

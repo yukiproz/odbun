@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { CommentFileFact } from '@open-design/contracts';
 
 /** Only managed comment-file retirement intents. These are not catalog facts:

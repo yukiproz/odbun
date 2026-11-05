@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { PublicFilePublicationScope, PublicFilePublication, PublicFilePublicationRevision, PublicFilePublicationStore } from './public-file-publication-store.js';
 import { publishedPathForSource, type ShareFileMapping } from './share-file-mapping.js';
 

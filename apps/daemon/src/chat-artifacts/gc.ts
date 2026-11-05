@@ -10,7 +10,7 @@
 // Deletes never happen on a UI request path. Project delete and conversation
 // delete drop refs through the FK cascade and leave the bytes to this sweep.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import fs from 'node:fs';
 
 import type { ChatArtifactBlobStore } from './blob-store.js';

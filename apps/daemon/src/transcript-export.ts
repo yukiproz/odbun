@@ -55,7 +55,7 @@
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import Database from 'better-sqlite3';
+import Database from './bun/db.js';
 import { listMessages } from './db.js';
 import { projectDir } from './projects.js';
 

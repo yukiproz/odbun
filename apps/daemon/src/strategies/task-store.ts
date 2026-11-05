@@ -26,7 +26,7 @@ import {
   type StrategyOutcomeV2,
   type StrategyRouteV2,
 } from '@open-design/contracts';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 
 import { getSnapshot } from '../plugins/snapshots.js';
 import {

@@ -21,7 +21,7 @@
 // (matching `finalize-design.ts`'s BYOK posture). The daemon does NOT
 // store provider credentials.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type {
   HandoffRequest,
   HandoffResponse,

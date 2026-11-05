@@ -14,7 +14,7 @@
 // caller-provided `GenUIEventSink` from `events.ts`. Tests can swap either.
 
 import { createHash } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { GenUISurfaceSpec } from '@open-design/contracts';
 import {
   buildStateSyncedEvent,

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { CommentSyncState, CommentAlignResult } from '@open-design/contracts';
 import { getProject } from '../db.js';
 import { getLiveWorkspaceArtifactByPath } from '../chat-artifacts/store.js';

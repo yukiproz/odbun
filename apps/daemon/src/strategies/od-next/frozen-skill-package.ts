@@ -11,7 +11,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
-import type Database from 'better-sqlite3';
+import type Database from '../../bun/db.js';
 
 import { parseFrontmatter } from '../../design-systems/frontmatter.js';
 import {

@@ -7,7 +7,7 @@
 // is part of the row key: a later login or Workspace switch can never retarget
 // an old delivery to another Team or silently fall back to Personal.
 
-import type Database from "better-sqlite3";
+import type Database from "../bun/db.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { CollabCloudComment } from "@open-design/contracts";
 import {

@@ -23,7 +23,7 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import {
   deleteInstalledPlugin,
   getInstalledPlugin,

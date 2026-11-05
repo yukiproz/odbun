@@ -10,7 +10,7 @@
 // the resolved runtime data root — this module never resolves a data path of
 // its own (see the Daemon data directory contract in AGENTS.md).
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { CollabCloudMemberDirectoryEntry, TeamProject } from '@open-design/contracts';
 import type { SyncDigestFace } from './sync-digest.js';
 

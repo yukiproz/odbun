@@ -1,7 +1,7 @@
 import { promises as fs, constants as fsConstants } from 'node:fs';
 import * as path from 'node:path';
 import type { Request, Response } from 'express';
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import { getCritiqueRun } from './persistence.js';
 import { mimeForExtension } from './artifact-writer.js';
 

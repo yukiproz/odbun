@@ -11,7 +11,7 @@
 // turn fails. It never falls back to "whatever is at that path now". A failed
 // snapshot is an honest gap; a substituted one is fabricated history.
 
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import fs from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 

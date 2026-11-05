@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from '../bun/db.js';
 import type { CommentFileFact } from '@open-design/contracts';
 import { getProject, getWorkspaceProjectByProjectId } from '../db.js';
 import type { runVelaCommand } from '../integrations/vela-command.js';
