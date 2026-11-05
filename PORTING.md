@@ -102,6 +102,14 @@ this port's future. House rule so they stay cheap to keep:
 ## Out of scope (by decision)
 
 Desktop/Electron, packaged builds, upstream's own CI topology, and any
-Node-compat fallback lane. If a Bun surface genuinely cannot carry a
+Node-compat fallback lane.
+
+**Docker — drop only if it gets in the way (Hadi, 2026-11-05).** Bun
+itself is light enough that Docker support has no inherent value for
+odbun, but the inherited Docker files (`deploy/Dockerfile*`, compose
+files, docker workflows/docs) are *left untouched* unless a specific
+workstream actually trips over them. If one does, that stream reports
+the friction and the removal happens as its own small commit — no
+big-bang Docker purge. If a Bun surface genuinely cannot carry a
 feature yet, the item stays open and reported — it is never silently
 routed back to Node.
