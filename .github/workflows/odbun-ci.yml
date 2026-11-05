@@ -1,3 +1,4 @@
+# Registration probe touch: 2026-11-06 (workflow indexing re-trigger).
 # odbun CI — this port's own workflow (Bun only, no Node anywhere).
 # Scaffold scope: the port layer (adapters + spikes). The daemon build
 # and Bun smoke gates join this file as the PORTING.md stages land.
