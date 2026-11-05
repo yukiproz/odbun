@@ -27,6 +27,17 @@ Setup for every run below (verbatim CI recipe): filtered frozen
 install — exit 0, 1,013 packages; closure build via postinstall +
 pm-shim — exit 0, `apps/daemon/dist/cli.js` present.
 
+**Execution venue (standing resource policy, Hadi 2026-11-06):**
+this VM is resource-tight ("pas-pasan"), so full suites run in
+**GitHub Actions** on runner resources; local VM runs are
+subset/feasibility evidence only. Accordingly: the §3.1/§3.2 daemon
+full runs below happened to complete locally minutes before this
+policy landed — their totals stand as measured local evidence — but
+they are not to be repeated locally, and the §3.3 web run was cut
+short at its local bound under cross-suite contention; its
+completion is offloaded to Actions. From here on, the Actions runs
+of the two CI jobs are the canonical full-suite evidence.
+
 ---
 
 ## 1. The `bunx` shebang trap (read this first)
