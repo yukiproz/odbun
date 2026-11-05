@@ -8,10 +8,18 @@ import {
   antigravity, assert, chmodSync, detectAgents, detectAgentsStream, inspectAgentExecutableResolution, join, minimalAgentDef, mkdirSync, mkdtempSync, opencode, resolveAgentExecutable, rmSync, spawnEnvForAgent, tmpdir, withEnvSnapshot, withPlatform, writeFileSync,
 } from './helpers/test-helpers.js';
 import { isCursorAuthFailureText } from '../../src/runtimes/auth.js';
+import { isBun } from '../helpers/runtime.js';
 import { agentCapabilities } from '../../src/runtimes/capabilities.js';
 import { getRememberedLiveModels } from '../../src/runtimes/models.js';
 
 const fsTest = process.platform === 'win32' ? test.skip : test;
+// Bun-only code path: these cases need detection's probes (version /
+// auth / model list) to succeed against fixture binaries, and the
+// probes run the real execFileBun in-process; under the Node harness
+// they fail, so availability/auth/models degrade. Runs on the Bun
+// track. See port/TEST-SUITES.md §4.2.
+const fsBunTest = process.platform === 'win32' ? test.skip : test.skipIf(!isBun);
+const bunTest = test.skipIf(!isBun);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 // Claude Code owns its own auth resolution. Preserve credentials from the
@@ -619,7 +627,7 @@ test('detectAgents includes sanitized install and docs metadata from split runti
   }
 });
 
-fsTest('detectAgents keeps Kimi available when ACP model discovery fails', async () => {
+fsBunTest('detectAgents keeps Kimi available when ACP model discovery fails', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-detect-kimi-modern-'));
   try {
     return await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
@@ -663,7 +671,7 @@ fsTest('detectAgents keeps Kimi available when ACP model discovery fails', async
   }
 });
 
-fsTest('detectAgents marks Codex available when nvm exposes a node shim but launch resolution upgrades it to the native binary', async () => {
+fsBunTest('detectAgents marks Codex available when nvm exposes a node shim but launch resolution upgrades it to the native binary', async () => {
   const home = mkdtempSync(join(tmpdir(), 'od-detect-codex-nvm-native-'));
   try {
     return await withEnvSnapshot(['HOME', 'PATH', 'OD_AGENT_HOME'], async () => {
@@ -743,7 +751,7 @@ fsTest('detectAgents keeps packaged built-in AMR unavailable when OpenCode canno
   }
 });
 
-fsTest('detectAgents marks AMR available from packaged built-in Vela with the bundled OpenCode companion tree', async () => {
+fsBunTest('detectAgents marks AMR available from packaged built-in Vela with the bundled OpenCode companion tree', async () => {
   const root = mkdtempSync(join(tmpdir(), 'od-detect-amr-built-in-'));
   try {
     return await withEnvSnapshot(['PATH', 'OD_AGENT_HOME', 'OD_RESOURCE_ROOT', 'VELA_OPENCODE_BIN'], async () => {
@@ -783,7 +791,7 @@ fsTest('detectAgents marks AMR available from packaged built-in Vela with the bu
 });
 
 
-fsTest('detectAgents prefers configured AMR live models over stale fallback defaults', async () => {
+fsBunTest('detectAgents prefers configured AMR live models over stale fallback defaults', async () => {
   const root = mkdtempSync(join(tmpdir(), 'od-detect-amr-live-models-'));
   try {
     return await withEnvSnapshot(['PATH', 'OD_AGENT_HOME', 'OD_RESOURCE_ROOT', 'VELA_OPENCODE_BIN'], async () => {
@@ -832,7 +840,7 @@ exit 0
   }
 });
 
-fsTest('detectAgents preserves the scoped AMR cache when a later probe returns no models', async () => {
+fsBunTest('detectAgents preserves the scoped AMR cache when a later probe returns no models', async () => {
   const root = mkdtempSync(join(tmpdir(), 'od-detect-amr-empty-models-'));
   try {
     return await withEnvSnapshot(['PATH', 'OD_AGENT_HOME', 'OD_RESOURCE_ROOT', 'VELA_OPENCODE_BIN'], async () => {
@@ -1010,7 +1018,7 @@ test('resolveAgentExecutable accepts Windows CODEX_BIN overrides with executable
   }
 });
 
-test('detectAgents applies configured env while probing the CLI', async () => {
+bunTest('detectAgents applies configured env while probing the CLI', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-agent-env-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
@@ -1043,7 +1051,7 @@ test('detectAgents applies configured env while probing the CLI', async () => {
   }
 });
 
-test('detectAgents records Antigravity permission capability from stderr help output', async () => {
+bunTest('detectAgents records Antigravity permission capability from stderr help output', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-antigravity-capability-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
@@ -1077,7 +1085,7 @@ test('detectAgents records Antigravity permission capability from stderr help ou
   }
 });
 
-test('detectAgents reuses the opencode configured env for byok-opencode availability', async () => {
+bunTest('detectAgents reuses the opencode configured env for byok-opencode availability', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-byok-opencode-detect-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
@@ -1119,7 +1127,7 @@ test('detectAgents reuses the opencode configured env for byok-opencode availabi
   }
 });
 
-test('detectAgents marks Cursor Agent auth ok when cursor-agent status succeeds', async () => {
+bunTest('detectAgents marks Cursor Agent auth ok when cursor-agent status succeeds', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-cursor-auth-ok-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
@@ -1151,7 +1159,7 @@ test('detectAgents marks Cursor Agent auth ok when cursor-agent status succeeds'
   }
 });
 
-test('detectAgents surfaces Cursor Agent model labels without putting labels in ids', async () => {
+bunTest('detectAgents surfaces Cursor Agent model labels without putting labels in ids', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-cursor-model-labels-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
@@ -1187,7 +1195,7 @@ test('detectAgents surfaces Cursor Agent model labels without putting labels in 
   }
 });
 
-test('detectAgents keeps Cursor Agent available when auth is missing', async () => {
+bunTest('detectAgents keeps Cursor Agent available when auth is missing', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-cursor-auth-missing-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
@@ -1223,7 +1231,7 @@ test('detectAgents keeps Cursor Agent available when auth is missing', async () 
   }
 });
 
-test('detectAgents treats Cursor Agent Not logged in status as missing auth', async () => {
+bunTest('detectAgents treats Cursor Agent Not logged in status as missing auth', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-cursor-not-logged-in-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {

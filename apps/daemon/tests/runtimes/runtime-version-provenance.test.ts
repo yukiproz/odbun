@@ -10,6 +10,7 @@ import {
   getDetectedRuntimeVersions,
 } from '../../src/runtimes/detection.js';
 import { AGENT_DEFS } from '../../src/runtimes/registry.js';
+import { isBun } from '../helpers/runtime.js';
 
 const roots: string[] = [];
 const originalPath = process.env.PATH;
@@ -30,8 +31,16 @@ function executable(name: string, version: string): string {
   return bin;
 }
 
+// Bun-only code path: the version probes below run the real
+// execFileBun in-process; under the Node harness they cannot execute
+// fixture shims, so versions/probe counts never surface. The guarded
+// cases keep their win32 gate by folding it into the same condition
+// (Vitest's chained runIf/skipIf types do not compose). Runs on the
+// Bun track. See port/TEST-SUITES.md §4.2.
+const itBunNonWindows = it.skipIf(!isBun || process.platform === 'win32');
+
 describe('runtime version provenance', () => {
-  it.runIf(process.platform !== 'win32').each(['selected', 'picker'] as const)(
+  itBunNonWindows.each(['selected', 'picker'] as const)(
     'recovers a missing version cached by %s detection without a manual rescan', async (source) => {
       // Only Date is virtual: child-process completion remains real I/O.
       vi.useFakeTimers({ toFake: ['Date'] });
@@ -61,7 +70,7 @@ describe('runtime version provenance', () => {
     },
   );
 
-  it.runIf(process.platform !== 'win32')('bounds repeated missing-version probes and keeps the CLI invocable', async () => {
+  itBunNonWindows('bounds repeated missing-version probes and keeps the CLI invocable', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(0);
     const bin = executable('opencode', '');
@@ -75,7 +84,10 @@ describe('runtime version provenance', () => {
     }
   });
 
-  it('remembers the exact detected CLI version for later run telemetry', async () => {
+  // Bun-only code path: detection's version probe runs the real
+  // execFileBun in-process; under the Node harness no version is
+  // detected. Runs on the Bun track. See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('remembers the exact detected CLI version for later run telemetry', async () => {
     executable('claude', 'claude 9.8.7');
 
     const agents = await detectAgents();
@@ -87,7 +99,9 @@ describe('runtime version provenance', () => {
     });
   });
 
-  it('re-probes when the configured executable changes instead of reusing another binary scope', async () => {
+  // Bun-only code path: same execFileBun probe as above.
+  // See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('re-probes when the configured executable changes instead of reusing another binary scope', async () => {
     const first = executable('claude-first', 'claude 1.0.0');
     const second = executable('claude-second', 'claude 2.0.0');
 
@@ -108,7 +122,7 @@ describe('runtime version provenance', () => {
       .resolves.toEqual({ invocable: true });
   });
 
-  it.runIf(process.platform !== 'win32')(
+  itBunNonWindows(
     'records the Vela CLI and its OpenCode companion as separate versions',
     async () => {
       const vela = executable('vela', 'vela 0.0.26');

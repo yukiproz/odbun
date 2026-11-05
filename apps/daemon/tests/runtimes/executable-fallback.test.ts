@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { detectAgent } from '../../src/runtimes/detection.js';
+import { isBun } from '../helpers/runtime.js';
 import { resolveAgentLaunch } from '../../src/runtimes/launch.js';
 import type { RuntimeAgentDef } from '../../src/runtimes/types.js';
 
@@ -151,7 +152,11 @@ describe('agent executable resolution falls back past unusable candidates', () =
   // a directory that OpenDesign searches *before* the one the official
   // installer writes to, so the working CLI was never reached and the agent
   // vanished from the picker entirely.
-  it('reaches a working binary that sits behind a broken one on PATH', async () => {
+  // Bun-only code path: the invocability walk probes each candidate
+  // through the real execFileBun in-process; under the Node harness
+  // every probe fails, so the walk cannot settle on the working
+  // binary. Runs on the Bun track. See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('reaches a working binary that sits behind a broken one on PATH', async () => {
     const brokenDir = tempDir('broken');
     const goodDir = tempDir('good');
     writeUnusableShim(brokenDir);
@@ -174,7 +179,9 @@ describe('agent executable resolution falls back past unusable candidates', () =
   // from the right binary, so the walk stops on the dead wrapper and the
   // healthy CLI later on PATH is never reached. Reproduced on every platform so
   // the regression is caught in CI, not only on a Windows runner.
-  it('walks past an npm wrapper whose package was uninstalled', async () => {
+  // Bun-only code path: same execFileBun probe walk as above.
+  // See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('walks past an npm wrapper whose package was uninstalled', async () => {
     const orphanDir = tempDir('orphan');
     const goodDir = tempDir('orphan-good');
     const orphanBin = writeOrphanedNpmWrapper(orphanDir);
@@ -218,7 +225,9 @@ describe('agent executable resolution falls back past unusable candidates', () =
   // back to the binary detection just rejected: Settings would advertise the
   // agent as installed while every chat turn execs the broken shim. Detection
   // and launch have to agree on which executable this agent runs.
-  it('makes every later launch resolve to the binary detection settled on', async () => {
+  // Bun-only code path: same execFileBun probe walk as above.
+  // See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('makes every later launch resolve to the binary detection settled on', async () => {
     const brokenDir = tempDir('broken-launch');
     const goodDir = tempDir('good-launch');
     const brokenBin = writeUnusableShim(brokenDir);
@@ -290,7 +299,11 @@ describe('agent executable resolution falls back past unusable candidates', () =
   // Even when every candidate is unusable, detection must surface the path it
   // actually tried. The picker hides an agent that reports no path at all, so
   // dropping it leaves the user with an invisible agent and no way to act.
-  it('keeps the attempted path when no candidate can be executed', async () => {
+  // Bun-only code path: same execFileBun probe walk as above; under
+  // the Node harness the probe failure classifies differently, so
+  // the shim-broken diagnostic never appears.
+  // See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('keeps the attempted path when no candidate can be executed', async () => {
     const brokenDir = tempDir('only-broken');
     const brokenBin = writeUnusableShim(brokenDir);
 

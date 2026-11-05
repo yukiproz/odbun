@@ -3,6 +3,7 @@ import {
   AGENT_DEFS, amp, assert, chmodSync, claude, codex, cursorAgent, detectAgents, grokBuild, join, mkdtempSync, rmSync, tmpdir, withEnvSnapshot, withPlatform, writeFileSync,
 } from './helpers/test-helpers.js';
 import { codexNeedsDangerFullAccessSandbox } from '../../src/runtimes/defs/codex.js';
+import { isBun } from '../helpers/runtime.js';
 import { isKnownServiceTier } from '../../src/runtimes/models.js';
 import { readLocalAgentProfileDefs } from '../../src/runtimes/registry.js';
 
@@ -330,7 +331,11 @@ test('codex args keep plugins enabled when OD_CODEX_DISABLE_PLUGINS is not 1', (
   });
 });
 
-test('codex model picker includes current OpenAI choices in priority order', async () => {
+// Bun-only code path: the tail of this test runs detection, whose
+// version probe uses the real execFileBun in-process; under the Node
+// harness the probe fails and the agent is reported unavailable.
+// Runs on the Bun track. See port/TEST-SUITES.md §4.2.
+test.skipIf(!isBun)('codex model picker includes current OpenAI choices in priority order', async () => {
   const expectedModels = [
     'default',
     'gpt-5.5',
@@ -494,7 +499,10 @@ exit 2
   }
 });
 
-test('claude probes auth status so rescans reflect CLI auth changes', async () => {
+// Bun-only code path: the auth probe runs the real execFileBun
+// in-process; under the Node harness it fails and authStatus degrades
+// to `unknown`. Runs on the Bun track. See port/TEST-SUITES.md §4.2.
+test.skipIf(!isBun)('claude probes auth status so rescans reflect CLI auth changes', async () => {
   assert.deepEqual(claude.authProbe, {
     args: ['auth', 'status'],
     timeoutMs: 5000,
@@ -562,7 +570,9 @@ exit 0
   }
 });
 
-test('codex probes login status so rescans reflect CLI auth changes', async () => {
+// Bun-only code path: same execFileBun auth probe as above.
+// See port/TEST-SUITES.md §4.2.
+test.skipIf(!isBun)('codex probes login status so rescans reflect CLI auth changes', async () => {
   assert.deepEqual(codex.authProbe, {
     args: ['login', 'status'],
     timeoutMs: 5000,
@@ -732,7 +742,11 @@ test('codex preserves service tier labels from bare-array debug models JSON', ()
   ]);
 });
 
-test('codex detection surfaces live debug models separately from fallback models', async () => {
+// Bun-only code path: live model discovery runs the real
+// execFileBun in-process; under the Node harness it fails and models
+// degrade to the fallback list. Runs on the Bun track.
+// See port/TEST-SUITES.md §4.2.
+test.skipIf(!isBun)('codex detection surfaces live debug models separately from fallback models', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-agents-codex-live-models-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME', 'CODEX_BIN'], async () => {
@@ -770,7 +784,9 @@ exit 2
   }
 });
 
-test('codex detection enriches sparse live GPT-5.5 metadata from fallback tiers', async () => {
+// Bun-only code path: same execFileBun model discovery as above.
+// See port/TEST-SUITES.md §4.2.
+test.skipIf(!isBun)('codex detection enriches sparse live GPT-5.5 metadata from fallback tiers', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'od-agents-codex-sparse-live-models-'));
   try {
     await withEnvSnapshot(['PATH', 'OD_AGENT_HOME', 'CODEX_BIN'], async () => {

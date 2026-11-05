@@ -18,6 +18,7 @@ import {
   normalizeDeepSeekHarnessFailure,
 } from '../../src/runtimes/auth.js';
 import { minimalAgentDef } from './helpers/test-helpers.js';
+import { isBun } from '../helpers/runtime.js';
 import {
   collectProcessTreePids,
   createCommandInvocation,
@@ -56,7 +57,11 @@ function createProfileHome(dir: string): string {
 }
 
 describe('DeepSeek Harness Windows carrier', () => {
-  it('resolves DSH_BIN and probes the profile through the platform command wrapper', async () => {
+  // Bun-only code path: detection's version/profile probes run the
+  // real execFileBun in-process; under the Node harness they fail, so
+  // the carrier is reported unavailable. Runs on the Bun track.
+  // See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('resolves DSH_BIN and probes the profile through the platform command wrapper', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'od-dsh-carrier-'));
     try {
       const carrier = writeFakeDshCarrier(dir);
@@ -78,7 +83,11 @@ describe('DeepSeek Harness Windows carrier', () => {
     }
   });
 
-  it('marks an incompatible profile unavailable without exposing runtime output', async () => {
+  // Bun-only code path: same execFileBun probes as above; under the
+  // Node harness the probe fails before the profile handshake, so the
+  // incompatibility diagnostic never appears.
+  // See port/TEST-SUITES.md §4.2.
+  it.skipIf(!isBun)('marks an incompatible profile unavailable without exposing runtime output', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'od-dsh-carrier-'));
     try {
       const carrier = writeFakeDshCarrier(dir);
