@@ -452,10 +452,14 @@ export interface BYOKToolContext {
    *
    *  Exception — asset downloads: when a provider result URL is fetched
    *  through `assertAndFetchExternalAsset` (connectionTest.ts), that
-   *  helper intentionally OVERRIDES `init.dispatcher` with the shared
-   *  asset-validating dispatcher whose connect-time DNS lookup rejects
-   *  non-public addresses (issue #5478). Asset downloads therefore never
-   *  ride the turn proxy dispatcher; submit/poll hops keep it. */
+   *  helper pre-validates the URL first (fail-closed DNS validation
+   *  rejecting non-public addresses, issue #5478) and forces
+   *  `redirect: 'error'` over this init; the rest of the init is spread
+   *  through unchanged. Bun's native fetch has no connect-time lookup
+   *  hook, so — unlike the old Undici stack — the helper attaches no
+   *  asset-validating dispatcher and the validated address is not
+   *  pinned at connect time; the residual DNS-rebinding window is
+   *  documented on `assertAndFetchExternalAsset` itself. */
   requestInit?: Pick<RequestInit, 'dispatcher' | 'signal'>;
 }
 
