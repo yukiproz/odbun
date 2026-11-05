@@ -1,7 +1,11 @@
-import { execFile, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFileBun, spawnDetached } from '../bun/spawn.js';
 
-const execFileAsync = promisify(execFile);
+// odbun R3: this helper ran on child_process (promisified execFile +
+// a detached spawn). It now runs on the Bun.spawn helpers in
+// bun/spawn.ts — execFileBun reproduces the execFile rejection
+// contract, and spawnDetached covers the Linux fire-and-forget path
+// (its weaker process-group guarantee vs Node's setsid `detached`
+// is documented there).
 
 // Cross-platform spawn helper for "open a system terminal and run this
 // command in it." Used by the antigravity adapter's `oauth-launch`
@@ -35,7 +39,7 @@ async function launchOnDarwin(command: string): Promise<TerminalLaunchResult> {
   const safe = command.replace(/"/g, '\\"');
   const script = `tell application "Terminal" to do script "${safe}"\ntell application "Terminal" to activate`;
   try {
-    await execFileAsync('osascript', ['-e', script], { timeout: 5_000 });
+    await execFileBun('osascript', ['-e', script], { timeout: 5_000 });
     return { ok: true, platform: 'darwin', via: 'osascript' };
   } catch (err) {
     return {
@@ -68,12 +72,10 @@ async function launchOnLinux(command: string): Promise<TerminalLaunchResult> {
   const errors: string[] = [];
   for (const { bin, args } of attempts) {
     try {
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn(bin, args, { detached: true, stdio: 'ignore' });
-        child.unref();
-        child.once('spawn', resolve);
-        child.once('error', reject);
-      });
+      // Bun.spawn throws synchronously when the binary cannot be
+      // spawned, so a returned process is a started process — the
+      // old 'spawn'-event wait collapses into the constructor call.
+      spawnDetached([bin, ...args]);
       return { ok: true, platform: 'linux', via: bin };
     } catch (err) {
       errors.push(`${bin}: ${err instanceof Error ? err.message : String(err)}`);
@@ -94,7 +96,7 @@ async function launchOnLinux(command: string): Promise<TerminalLaunchResult> {
 // OAuth output and finish the flow before the window closes.
 async function launchOnWindows(command: string): Promise<TerminalLaunchResult> {
   try {
-    await execFileAsync(
+    await execFileBun(
       'cmd.exe',
       ['/c', 'start', 'OpenDesign', 'cmd.exe', '/k', command],
       { timeout: 5_000 },
