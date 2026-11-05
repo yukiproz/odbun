@@ -24,6 +24,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { isBun } from './helpers/runtime.js';
+
 let daemon: http.Server | undefined;
 let daemonShutdown: (() => Promise<void> | void) | undefined;
 let baseUrl = '';
@@ -87,7 +89,12 @@ afterEach(async () => {
   else process.env.OD_DATA_DIR = PREV_DATA_DIR;
 }, 15000);
 
-describe('library ingest SSRF', () => {
+// Bun-only code path: every test here boots the real daemon in-process
+// (dynamic import of ../src/server.js), whose import chain reaches
+// src/db.ts → bun:sqlite — under the Node harness each test fails with
+// `Cannot find package 'bun:sqlite'`. The suite runs on the Bun track.
+// See port/TEST-SUITES.md §4.1.
+describe.skipIf(!isBun)('library ingest SSRF', () => {
   it('must NOT fetch a loopback/internal URL (and must not exfil its bytes)', async () => {
     // Present a browser-extension Origin. A real browser reserves this for an
     // installed extension, but any local non-browser client sets it freely —

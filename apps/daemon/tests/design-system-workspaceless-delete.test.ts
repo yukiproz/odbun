@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 
+import { isBun } from './helpers/runtime.js';
+
 type StartedServer = {
   url: string;
   server: Server;
@@ -40,7 +42,12 @@ afterEach(async () => {
   vi.resetModules();
 }, 30_000);
 
-it('allows headerless deletion but rejects malformed workspace metadata in workspace-less local mode', async () => {
+// Bun-only code path: this test drives the daemon's DB layer and the
+// real server in-process (dynamic imports of ../src/db.js and
+// ../src/server.js), and src/db.ts reaches bun:sqlite — under the Node
+// harness it fails with `Cannot find package 'bun:sqlite'`. It runs on
+// the Bun track. See port/TEST-SUITES.md §4.1.
+it.skipIf(!isBun)('allows headerless deletion but rejects malformed workspace metadata in workspace-less local mode', async () => {
   // Given a workspace-less local daemon with a user-created design system
   dataDir = await mkdtemp(join(tmpdir(), 'od-design-system-workspaceless-delete-'));
   process.env.OD_DATA_DIR = dataDir;

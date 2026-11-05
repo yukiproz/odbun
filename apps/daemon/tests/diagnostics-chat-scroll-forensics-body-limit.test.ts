@@ -34,6 +34,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { isBun } from './helpers/runtime.js';
+
 import { CHAT_SCROLL_FORENSICS_PATH } from '../src/diagnostics-client-evidence.js';
 
 /** Over the global 4mb ceiling, comfortably under the route's own 24mb. */
@@ -156,7 +158,12 @@ afterEach(async () => {
   else process.env.OD_DATA_DIR = PREV_DATA_DIR;
 }, 20_000);
 
-describe('chat-scroll forensics body limit, through the real express app', () => {
+// Bun-only code path: every test here boots the real daemon in-process
+// (dynamic import of ../src/server.js), whose import chain reaches
+// src/db.ts → bun:sqlite — under the Node harness each test fails with
+// `Cannot find package 'bun:sqlite'`. The suite runs on the Bun track.
+// See port/TEST-SUITES.md §4.1.
+describe.skipIf(!isBun)('chat-scroll forensics body limit, through the real express app', () => {
   it('accepts a capture larger than the global 4mb ceiling', async () => {
     const envelope = forensicsEnvelopeOfSize(OVER_GLOBAL_LIMIT_BYTES);
     // Guard the fixture itself: a padding bug that produced a small body would

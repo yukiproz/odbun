@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { register } from 'prom-client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { isBun } from './helpers/runtime.js';
+
 type StartedServer = {
   url: string;
   server: Server;
@@ -20,7 +22,12 @@ let started: StartedServer | null = null;
 let dataDir: string | null = null;
 let serverModule: ServerModule | null = null;
 
-describe('project design-system copy route', () => {
+// Bun-only code path: every test here boots the real daemon in-process
+// (dynamic import of ../src/server.js), whose import chain reaches
+// src/db.ts → bun:sqlite — under the Node harness each test fails with
+// `Cannot find package 'bun:sqlite'`. The suite runs on the Bun track.
+// See port/TEST-SUITES.md §4.1.
+describe.skipIf(!isBun)('project design-system copy route', () => {
   afterEach(async () => {
     await stopServer();
     register.clear();

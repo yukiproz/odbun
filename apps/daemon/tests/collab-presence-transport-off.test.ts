@@ -3,6 +3,8 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { isBun } from './helpers/runtime.js';
 import {
   buildWorkspacePermissions,
   buildWorkspaceSeatSummary,
@@ -70,7 +72,12 @@ afterEach(async () => {
 
 const SHARED_PROJECT = 'presence-transport-off-shared';
 
-describe('collab presence with the vela-cli collab transport off', () => {
+// Bun-only code path: every test here boots the real daemon in-process
+// (dynamic import of ../src/server.js), whose import chain reaches
+// src/db.ts → bun:sqlite — under the Node harness each test fails with
+// `Cannot find package 'bun:sqlite'`. The suite runs on the Bun track.
+// See port/TEST-SUITES.md §4.1.
+describe.skipIf(!isBun)('collab presence with the vela-cli collab transport off', () => {
   it('falls back to process-local presence on leave instead of failing', async () => {
     // The leanest possible reproduction: no cloud transport, no fixtures. `leave`
     // carries no shared/authorized precondition, so it reaches the cloud branch
@@ -132,7 +139,9 @@ describe('collab presence with the vela-cli collab transport off', () => {
   }, 60_000);
 });
 
-describe('collab presence with the vela-cli collab transport on', () => {
+// Bun-only code path: see the note on the transport-off suite above
+// (in-process server boot → src/db.ts → bun:sqlite). §4.1.
+describe.skipIf(!isBun)('collab presence with the vela-cli collab transport on', () => {
   it('still relays presence to the cloud', async () => {
     setEnv({
       OD_COLLAB_TRANSPORT: 'vela-cli',

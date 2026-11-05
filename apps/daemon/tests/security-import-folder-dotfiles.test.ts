@@ -46,6 +46,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { isBun } from './helpers/runtime.js';
+
 let daemon: http.Server | undefined;
 let daemonShutdown: (() => Promise<void> | void) | undefined;
 let baseUrl = '';
@@ -115,7 +117,12 @@ async function importFakeHome(): Promise<{ status: number; projectId: string | n
   return { status: resp.status, projectId: json.project?.id ?? null };
 }
 
-describe('import/folder -> home-tree file primitives', () => {
+// Bun-only code path: every test here boots the real daemon in-process
+// (dynamic import of ../src/server.js, plus ../src/projects.js), whose
+// import chain reaches src/db.ts → bun:sqlite — under the Node harness
+// each test fails with `Cannot find package 'bun:sqlite'`. The suite
+// runs on the Bun track. See port/TEST-SUITES.md §4.1.
+describe.skipIf(!isBun)('import/folder -> home-tree file primitives', () => {
   it('exposure: no-Origin requests reach the route; real cross-origin and null origins are blocked', async () => {
     // A real cross-origin browser request must stay blocked by the /api
     // origin middleware (this is the guard working as intended).
