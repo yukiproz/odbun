@@ -798,7 +798,7 @@ describe('native OpenCode child evidence', () => {
     expect(budgeted).not.toHaveBeenCalled();
   });
 
-  it('reads one child through the sanitized OpenCode export without running plugins', async () => {
+  it('reads one child through the sanitized OpenCode session export', async () => {
     const data = fixture();
     execAgentFileMock.mockResolvedValue({
       stdout: JSON.stringify(data.sanitizedChildExport),
@@ -814,7 +814,7 @@ describe('native OpenCode child evidence', () => {
     });
     expect(execAgentFileMock).toHaveBeenCalledWith(
       '/opt/open-design/opencode',
-      ['export', 'ses_child_synthetic', '--sanitize', '--pure'],
+      ['session', 'export', 'ses_child_synthetic', '--sanitize'],
       expect.objectContaining({
         env: { XDG_DATA_HOME: '/run/od/share' },
         timeout: expect.any(Number),

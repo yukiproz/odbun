@@ -156,7 +156,10 @@ import {
 // Shared with `POST /api/runs/:id/steer` so the opening prompt and a B11
 // mid-turn steering frame are encoded by the same writer.
 import { encodeStreamJsonUserMessage } from './runtimes/run-steering.js';
-import { openCodeSystemTempDirectories } from './runtimes/opencode-permissions.js';
+import {
+  applyOpenCodeWorkspaceEnv,
+  openCodeSystemTempDirectories,
+} from './runtimes/opencode-permissions.js';
 import { assertOdNextSemanticRequestFactProducerCoverage } from './runtimes/od-next-exact-input.js';
 import {
   normalizeRunContextSelection,
@@ -15298,6 +15301,17 @@ export async function startServer({
           ? { OD_TASK_INPUT_DIR: odNextTaskInputSnapshot.projectionDir }
           : {}),
       }, agentLaunch);
+      // OpenCode v2 has no `--dir`: it resolves its workspace as
+      // `options.root ?? env.PWD ?? process.cwd()`. The spawn below passes
+      // `cwd: effectiveCwd`, but a spawn cwd does not update the child's
+      // PWD, so pin PWD to the same directory here — otherwise an inherited
+      // PWD pointing at the daemon's own tree would silently make OpenCode
+      // adopt that tree instead of the project (see
+      // runtimes/opencode-permissions.ts). OpenCode defs only; every other
+      // runtime keeps its inherited PWD.
+      if (def.id === 'opencode' || def.id === 'byok-opencode') {
+        applyOpenCodeWorkspaceEnv(env, effectiveCwd);
+      }
       // Build permissions after configured env expansion and launch overrides,
       // so the granted temp root matches the environment the child receives.
       if (isOpenCodeContent || isMiMoContent) {

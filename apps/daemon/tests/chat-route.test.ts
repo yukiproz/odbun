@@ -910,12 +910,12 @@ process.stdin.on('end', () => {
         expect(body).toContain('byok-opencode-ok');
 
         expect(await fsp.readFile(keyFile, 'utf8')).toBe('sk-test-byok');
+        // OpenCode v2 has no `--dir`: the workspace reaches the child via
+        // the spawn cwd + PWD pin, so argv starts straight at the model.
         expect(JSON.parse(await fsp.readFile(argsFile, 'utf8'))).toEqual([
           'run',
           '--format',
           'json',
-          '--dir',
-          expect.stringContaining(projectId),
           '-m',
           'open-design-byok/deepseek-v4-flash',
         ]);
@@ -1005,12 +1005,12 @@ process.stdin.on('end', () => {
         expect(body).toContain('byok-opencode-keyless-ok');
 
         expect(await fsp.readFile(keyFile, 'utf8')).toBe('');
+        // OpenCode v2 has no `--dir`: the workspace reaches the child via
+        // the spawn cwd + PWD pin, so argv starts straight at the model.
         expect(JSON.parse(await fsp.readFile(argsFile, 'utf8'))).toEqual([
           'run',
           '--format',
           'json',
-          '--dir',
-          expect.stringContaining(projectId),
           '-m',
           'open-design-byok/model',
         ]);

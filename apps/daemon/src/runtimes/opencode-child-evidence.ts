@@ -369,17 +369,19 @@ export async function collectOpenCodeChildRuntimeFacts(input: {
 }
 
 /**
- * Read one child session through `opencode export <id> --sanitize`, the only
- * OpenCode surface that emits a child transcript together with the `parentID`
- * the two-sided verification needs, and with transcript and file bytes already
- * redacted by the CLI itself.
+ * Read one child session through `opencode session export <id> --sanitize`,
+ * the only OpenCode surface that emits a child transcript together with the
+ * `parentID` the two-sided verification needs, and with transcript and file
+ * bytes already redacted by the CLI itself.
  *
- * `--pure` keeps a user-installed OpenCode plugin from executing inside the
- * evidence path, and `execAgentFile` supplies a neutral working directory so
- * the bun-based CLI cannot drop a lockfile into the user's project (see
- * `invocation.ts`). The env must be the one the Run was spawned with: it
- * carries the `XDG_DATA_HOME` / `HOME` that decide which session store the
- * spawned CLI actually wrote to.
+ * OpenCode v2 moved `export` under the `session` command and dropped the
+ * `--pure` flag the v1 form carried (it kept a user-installed plugin from
+ * executing inside the evidence path); `--sanitize` is kept on the
+ * assumption v2 retains it. `execAgentFile` supplies a neutral working
+ * directory so the bun-based CLI cannot drop a lockfile into the user's
+ * project (see `invocation.ts`). The env must be the one the Run was
+ * spawned with: it carries the `XDG_DATA_HOME` / `HOME` that decide which
+ * session store the spawned CLI actually wrote to.
  */
 export function createOpenCodeSanitizedExportLoader(input: {
   launchPath: string;
@@ -393,15 +395,15 @@ export function createOpenCodeSanitizedExportLoader(input: {
     }
     const { stdout } = await execAgentFile(
       input.launchPath,
-      ['export', childSessionId, '--sanitize', '--pure'],
+      ['session', 'export', childSessionId, '--sanitize'],
       {
         env: input.env,
         timeout: input.timeoutMs ?? OPENCODE_CHILD_EXPORT_TIMEOUT_MS,
         maxBuffer: input.maxBytes ?? OPENCODE_CHILD_EXPORT_MAX_BYTES,
       },
     );
-    // `opencode export` writes its progress line to stderr, so stdout is the
-    // session document alone.
+    // `opencode session export` writes its progress line to stderr, so stdout
+    // is the session document alone.
     return JSON.parse(typeof stdout === 'string' ? stdout : String(stdout));
   };
 }

@@ -64,7 +64,11 @@ function declaredAssetPaths(record: InstalledPluginRecord): string[] {
   return assets.map((asset) => path.join(record.fsPath, asset));
 }
 
-/** Mirrors how OpenCode reads `permission.external_directory` for one file. */
+/**
+ * Mirrors how OpenCode v2 reads the `external_directory` rules of its
+ * `permissions` ruleset for one file. The builder only emits `allow` rules
+ * for this action, so folding the ruleset back into a record is exact.
+ */
 function allowsRead(
   externalDirectory: Record<string, string>,
   filePath: string,
@@ -85,9 +89,13 @@ function allowsRead(
 function externalDirectoryFor(allowedDirectories: string[]): Record<string, string> {
   const content = buildOpenCodeMcpConfigContent([], {}, { allowedDirectories });
   const parsed = JSON.parse(content ?? '{}') as {
-    permission?: { external_directory?: Record<string, string> };
+    permissions?: Array<{ action: string; resource: string; effect: string }>;
   };
-  return parsed.permission?.external_directory ?? {};
+  const record: Record<string, string> = {};
+  for (const rule of parsed.permissions ?? []) {
+    if (rule.action === 'external_directory') record[rule.resource] = rule.effect;
+  }
+  return record;
 }
 
 describe('run-scoped external_directory allowlist — skill roots', () => {

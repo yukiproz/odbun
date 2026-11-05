@@ -14,16 +14,18 @@ export const byokOpenCodeAgentDef = {
   versionArgs: ['--version'],
   ...OPENCODE_PERMISSION_CAPABILITY,
   fallbackModels: [DEFAULT_MODEL_OPTION],
-  buildArgs: (_prompt, _imagePaths, _extra, options = {}, runtimeContext = {}) => {
+  buildArgs: (_prompt, _imagePaths, _extra, options = {}, _runtimeContext = {}) => {
     const args = ['run', '--format', 'json'];
-    if (typeof runtimeContext.cwd === 'string' && runtimeContext.cwd.length > 0) {
-      // OpenCode promotes nested directories to the enclosing Git worktree
-      // unless its own directory flag is explicit. Managed OpenDesign
-      // projects live under the development repository in local runs, so
-      // relying on spawn({ cwd }) alone can make Write/Edit target the repo
-      // root instead of the selected project.
-      args.push('--dir', runtimeContext.cwd);
-    }
+    // No `--dir` argv: OpenCode v2 removed it. The workspace directory
+    // reaches the child through the spawn itself — `cwd` (the runner spawns
+    // with runtimeContext.cwd) plus `env.PWD` pinned to the same directory
+    // via `applyOpenCodeWorkspaceEnv` at the spawn site in server.ts —
+    // exactly the mechanism the main OpenCode def relies on (see
+    // defs/opencode.ts). Managed OpenDesign projects live under the
+    // development repository in local runs, and OpenCode promotes nested
+    // directories to the enclosing Git worktree when only the process cwd
+    // is set, so the PWD half of the pair is what keeps Write/Edit aimed
+    // at the selected project instead of the repo root.
     appendOpenCodePermissionBypass(args, 'byok-opencode');
     const model = opencodeByokModelId(options.model);
     if (model) args.push('-m', model);

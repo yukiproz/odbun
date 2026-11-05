@@ -10,6 +10,18 @@ import { loadOdNextTaskAssetsForSnapshot } from '../src/strategies/od-next/devic
 import { buildOpenCodeMcpConfigContent } from '../src/mcp-config.js';
 
 const SOURCE = path.resolve(import.meta.dirname, '../../../plugins/_official/scenarios/od-next-strategy');
+
+/** Folds the v2 `permissions` ruleset back into a per-action record. */
+function rulesRecord(
+  config: { permissions?: Array<{ action: string; resource: string; effect: string }> },
+  action: string,
+): Record<string, string> {
+  const record: Record<string, string> = {};
+  for (const rule of config.permissions ?? []) {
+    if (rule.action === action) record[rule.resource] = rule.effect;
+  }
+  return record;
+}
 let tmp: string;
 let folder: string;
 let snapshot: Pick<AppliedPluginSnapshot, 'pluginId' | 'strategy'>;
@@ -37,13 +49,17 @@ describe('bundled strategy resource directory access', () => {
       expect(assets.taskSkill).toContain(path.join(root, `${skill.id}.md`));
     }
     // OpenCode asks external_directory using the file's parent + "/*".
-    expect(config.permission?.external_directory?.[path.join(root, '*')]).toBe('allow');
-    expect(Object.keys(config.permission.external_directory).sort()).toEqual([root, path.join(root, '*'), path.join(root, '**')].sort());
+    const externalDirectory = rulesRecord(config, 'external_directory');
+    expect(externalDirectory[path.join(root, '*')]).toBe('allow');
+    expect(Object.keys(externalDirectory).sort()).toEqual([root, path.join(root, '*'), path.join(root, '**')].sort());
     expect(assets.taskProfileRoot).toBe(root);
     expect(config.mcp).toBeUndefined();
-    expect(config.permission.read).toBeUndefined();
-    expect(config.permission.edit).toBeUndefined();
-    expect(config.permission.external_directory[path.join(tmp, '*')]).toBeUndefined();
+    // v2 emits the ordered `permissions` ruleset, never the v1 `permission`
+    // record; a pure directory grant carries no read/edit rules at all.
+    expect(config.permission).toBeUndefined();
+    expect(rulesRecord(config, 'read')).toEqual({});
+    expect(rulesRecord(config, 'edit')).toEqual({});
+    expect(externalDirectory[path.join(tmp, '*')]).toBeUndefined();
   });
 
   it.each(['discovery', 'motion-design', 'prototype'] as const)('loads %s access from the verified applied package, independent of prompt composition', async (taskType) => {
@@ -58,7 +74,7 @@ describe('bundled strategy resource directory access', () => {
     expect(assets.resources).toEqual(expect.any(Array));
     const dirs = resolveChatExtraAllowedDirs({ agentId: 'byok-opencode', strategyResourceDirs: [assets.taskProfileRoot] });
     const config = JSON.parse(buildOpenCodeMcpConfigContent([], {}, { allowedDirectories: dirs }) ?? '{}');
-    expect(config.permission.external_directory[path.join(assets.taskProfileRoot!, '*')]).toBe('allow');
+    expect(rulesRecord(config, 'external_directory')[path.join(assets.taskProfileRoot!, '*')]).toBe('allow');
   });
 
   it('returns no resource root for a non-strategy snapshot', async () => {

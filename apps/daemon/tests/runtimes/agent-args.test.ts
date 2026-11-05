@@ -5,6 +5,7 @@ import {
 } from './helpers/test-helpers.js';
 import { writeAntigravityModelSelection } from '../../src/runtimes/defs/antigravity.js';
 import { parseOpenCodeModels } from '../../src/runtimes/defs/opencode.js';
+import { applyOpenCodeWorkspaceEnv } from '../../src/runtimes/opencode-permissions.js';
 import { agentCapabilities } from '../../src/runtimes/capabilities.js';
 import {
   getRememberedLiveModels,
@@ -83,7 +84,7 @@ test('opencode args pass model-supported variants without changing the default a
   const baseArgs = opencode.buildArgs(prompt, [], [], {});
   assert.equal(opencode.promptViaStdin, true);
   assert.equal(opencode.reasoningOptions, undefined);
-  assert.deepEqual(opencode.listModels?.args, ['models', '--verbose']);
+  assert.deepEqual(opencode.listModels?.args, ['models']);
   assert.equal(opencode.fallbackModels.find(
     (model) => model.id === 'openai/gpt-5.6-sol',
   )?.reasoningOptions, undefined);
@@ -128,7 +129,7 @@ test('opencode args pass model-supported variants without changing the default a
   assert.equal(withModel.includes('--model'), false);
 });
 
-test('opencode parses live verbose variant metadata and only forwards variants advertised for that model', () => {
+test('opencode parses live verbose variant metadata and folds advertised variants into the -m selector', () => {
   const previous = getRememberedLiveModels('opencode');
   const parsed = parseOpenCodeModels([
     'openai/gpt-5.6-sol',
@@ -160,6 +161,8 @@ test('opencode parses live verbose variant metadata and only forwards variants a
 
   rememberLiveModels('opencode', parsed ?? []);
   try {
+    // v2 has no `--variant` flag: an advertised variant folds into the
+    // model selector as `-m provider/model#variant`.
     assert.deepEqual(opencode.buildArgs('', [], [], {
       model: 'openai/gpt-5.6-sol',
       reasoning: 'high',
@@ -168,9 +171,7 @@ test('opencode parses live verbose variant metadata and only forwards variants a
       '--format',
       'json',
       '-m',
-      'openai/gpt-5.6-sol',
-      '--variant',
-      'high',
+      'openai/gpt-5.6-sol#high',
     ]);
     assert.deepEqual(opencode.buildArgs('', [], [], {
       model: 'openai/gpt-5.6-terra',
@@ -180,9 +181,7 @@ test('opencode parses live verbose variant metadata and only forwards variants a
       '--format',
       'json',
       '-m',
-      'openai/gpt-5.6-terra',
-      '--variant',
-      'high',
+      'openai/gpt-5.6-terra#high',
     ]);
     assert.deepEqual(opencode.buildArgs('', [], [], {
       model: 'openai/gpt-5.6-luna',
@@ -192,9 +191,7 @@ test('opencode parses live verbose variant metadata and only forwards variants a
       '--format',
       'json',
       '-m',
-      'openai/gpt-5.6-luna',
-      '--variant',
-      'max',
+      'openai/gpt-5.6-luna#max',
     ]);
     assert.deepEqual(opencode.buildArgs('', [], [], {
       model: 'custom/reasoner',
@@ -204,9 +201,7 @@ test('opencode parses live verbose variant metadata and only forwards variants a
       '--format',
       'json',
       '-m',
-      'custom/reasoner',
-      '--variant',
-      'ultra',
+      'custom/reasoner#ultra',
     ]);
     assert.deepEqual(opencode.buildArgs('', [], [], {
       model: 'custom/plain',
@@ -245,13 +240,25 @@ test('opencode pins its workspace to the project cwd', () => {
   // made OpenCode adopt the whole Open Design repository as the workspace: it
   // wrote the deliverable at the repository root, the project stayed empty, and
   // the Run reported `no_artifact`.
+  //
+  // OpenCode v2 removed the `--dir` flag the daemon used to pin this with.
+  // The pin is now a spawn pair: the runner spawns with the project cwd AND
+  // `applyOpenCodeWorkspaceEnv` sets the child's PWD to the same directory,
+  // because v2 resolves `options.root ?? env.PWD ?? process.cwd()` and a
+  // spawn cwd alone does not update the child's PWD.
   const args = opencode.buildArgs('design a dashboard', [], [], {}, { cwd: '/projects/p1' });
-  assert.deepEqual(args, ['run', '--format', 'json', '--dir', '/projects/p1']);
+  assert.deepEqual(args, ['run', '--format', 'json']);
+  const env = applyOpenCodeWorkspaceEnv({ PWD: '/daemon/checkout' }, '/projects/p1');
+  assert.equal(env.PWD, '/projects/p1');
 });
 
 test('opencode omits --dir for a run with no project directory', () => {
   const args = opencode.buildArgs('design a dashboard', [], [], {}, {});
   assert.equal(args.includes('--dir'), false);
+  // With no project directory there is nothing to pin: the helper leaves the
+  // inherited env alone rather than inventing a PWD.
+  const env = applyOpenCodeWorkspaceEnv({ PWD: '/daemon/checkout' }, undefined);
+  assert.equal(env.PWD, '/daemon/checkout');
 });
 
 // Copilot reads the prompt from stdin when `-p` is omitted entirely

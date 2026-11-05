@@ -77,6 +77,7 @@ import {
 } from './agents.js';
 import { agentCliEnvForAgent, readAppConfig } from './app-config.js';
 import { createJsonEventStreamHandler } from './runtimes/json-event-stream.js';
+import { applyOpenCodeWorkspaceEnv } from './runtimes/opencode-permissions.js';
 
 const SYSTEM_PROMPT = `You are a memory extractor for a personal AI design assistant.
 
@@ -1042,6 +1043,14 @@ async function callLocalCli(provider, system, user, options) {
     ),
     launch,
   );
+  if (provider.agentId === 'opencode') {
+    // OpenCode v2 has no `--dir` and resolves its workspace as
+    // `options.root ?? env.PWD ?? process.cwd()`; the spawn below passes
+    // `cwd`, which does not update the child's PWD, so pin PWD to the same
+    // directory (see applyOpenCodeWorkspaceEnv). Other providers keep
+    // their inherited PWD.
+    applyOpenCodeWorkspaceEnv(env, cwd);
+  }
   const invocation = createCommandInvocation({
     command: launch.launchPath,
     args,

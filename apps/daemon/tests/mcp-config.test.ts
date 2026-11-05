@@ -392,6 +392,37 @@ describe('buildAcpMcpServers', () => {
 });
 
 describe('buildOpenCodeMcpConfigContent', () => {
+  // OpenCode v2 config shape: MCP servers nest under `mcp.servers` with a
+  // `disabled` flag (never the v1 `enabled`), and permission grants are an
+  // ordered `permissions` ruleset of { action, resource, effect } evaluated
+  // last-match-wins — the v1 `permission` record is never emitted. The
+  // helpers below read the ruleset back per action so each test can keep
+  // asserting the same grants it asserted against the v1 record.
+  type OpenCodeRule = { action: string; resource: string; effect: string };
+
+  function ruleEffect(
+    rules: OpenCodeRule[] | undefined,
+    action: string,
+    resource: string,
+  ): string | undefined {
+    let effect: string | undefined;
+    for (const rule of rules ?? []) {
+      if (rule.action === action && rule.resource === resource) effect = rule.effect;
+    }
+    return effect;
+  }
+
+  function rulesRecord(
+    rules: OpenCodeRule[] | undefined,
+    action: string,
+  ): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const rule of rules ?? []) {
+      if (rule.action === action) out[rule.resource] = rule.effect;
+    }
+    return out;
+  }
+
   it.each(['allow', { '*': 'ask', '/private/locked/**': 'deny' }])(
     'admits read-only resources without relaxing existing edit permissions: %j',
     (edit) => {
@@ -403,27 +434,35 @@ describe('buildOpenCodeMcpConfigContent', () => {
         extraConfig: { permission: { edit, bash: 'ask', read: { '*.env': 'deny' } } },
       });
       const parsed = JSON.parse(raw!);
-      expect(parsed.permission.external_directory[project]).toBe('allow');
+      expect(parsed.permission).toBeUndefined();
+      const rules = parsed.permissions as OpenCodeRule[];
+      expect(ruleEffect(rules, 'external_directory', project)).toBe('allow');
       for (const suffix of ['', '*', '**']) {
         const entry = suffix ? path.join(profiles, suffix) : profiles;
-        expect(parsed.permission.external_directory[entry]).toBe('allow');
-        expect(parsed.permission.edit[entry]).toBe('deny');
+        expect(ruleEffect(rules, 'external_directory', entry)).toBe('allow');
+        expect(ruleEffect(rules, 'edit', entry)).toBe('deny');
       }
-      expect(parsed.permission.edit['*']).toBe(typeof edit === 'string' ? edit : edit['*']);
-      if (typeof edit === 'object') expect(parsed.permission.edit['/private/locked/**']).toBe('deny');
-      expect(parsed.permission.edit[project]).toBeUndefined();
-      expect(parsed.permission.bash).toBe('ask');
-      expect(parsed.permission.read).toEqual({ '*.env': 'deny' });
-      expect(Object.keys(parsed.permission.external_directory)).toHaveLength(6);
+      expect(ruleEffect(rules, 'edit', '*')).toBe(typeof edit === 'string' ? edit : edit['*']);
+      if (typeof edit === 'object') expect(ruleEffect(rules, 'edit', '/private/locked/**')).toBe('deny');
+      expect(ruleEffect(rules, 'edit', project)).toBeUndefined();
+      expect(ruleEffect(rules, 'bash', '*')).toBe('ask');
+      expect(rulesRecord(rules, 'read')).toEqual({ '*.env': 'deny' });
+      expect(Object.keys(rulesRecord(rules, 'external_directory'))).toHaveLength(6);
+      // Last match wins in v2, so the ruleset keeps the daemon's deny-last
+      // invariant: every deny rule sits after every non-deny rule.
+      const firstDeny = rules.findIndex((rule) => rule.effect === 'deny');
+      expect(firstDeny).toBeGreaterThanOrEqual(0);
+      expect(rules.slice(firstDeny).every((rule) => rule.effect === 'deny')).toBe(true);
     },
   );
 
   it('emits permission-only config for read-only directories', () => {
     const profiles = path.resolve(tmpdir(), 'od-strategy-permission/task-profiles');
     const parsed = JSON.parse(buildOpenCodeMcpConfigContent([], {}, { readOnlyDirectories: [profiles] })!);
-    expect(parsed.permission.external_directory[profiles]).toBe('allow');
-    expect(parsed.permission.edit[profiles]).toBe('deny');
-    expect(parsed.permission.edit['*']).toBeUndefined();
+    expect(parsed.permission).toBeUndefined();
+    expect(ruleEffect(parsed.permissions, 'external_directory', profiles)).toBe('allow');
+    expect(ruleEffect(parsed.permissions, 'edit', profiles)).toBe('deny');
+    expect(ruleEffect(parsed.permissions, 'edit', '*')).toBeUndefined();
     expect(parsed.mcp).toBeUndefined();
   });
 
@@ -434,11 +473,16 @@ describe('buildOpenCodeMcpConfigContent', () => {
     const parsed = JSON.parse(buildOpenCodeMcpConfigContent([], {}, {
       readOnlyDirectories: [profiles], extraConfig: { permission: { edit } },
     })!);
-    // OpenCode uses the last matching rule. Replacing an existing object's
-    // value does not move that key after a later broad allow rule.
-    expect(Object.keys(parsed.permission.edit).slice(-3)).toEqual(entries);
-    expect(entries.map((entry) => parsed.permission.edit[entry])).toEqual(['deny', 'deny', 'deny']);
-    expect(parsed.permission.edit['*']).toBe('allow');
+    // OpenCode uses the last matching rule. In the v2 ruleset the resource
+    // denials must still land after the broad '*' allow rule — replacing an
+    // existing pattern's effect must not leave its deny in front of it.
+    expect(parsed.permission).toBeUndefined();
+    const editRules = (parsed.permissions as OpenCodeRule[]).filter(
+      (rule) => rule.action === 'edit',
+    );
+    expect(editRules[0]).toEqual({ action: 'edit', resource: '*', effect: 'allow' });
+    expect(editRules.slice(1).map((rule) => rule.resource)).toEqual(entries);
+    expect(editRules.slice(1).map((rule) => rule.effect)).toEqual(['deny', 'deny', 'deny']);
   });
 
   it.each(['git', 'global'])('denies worktree-relative resource edits in a %s project', (kind) => {
@@ -447,9 +491,10 @@ describe('buildOpenCodeMcpConfigContent', () => {
     const parsed = JSON.parse(buildOpenCodeMcpConfigContent([], {}, {
       readOnlyDirectories: [profiles], readOnlyEditBaseDirs: [base],
     })!);
-    expect(parsed.permission.edit[path.join(path.relative(base, profiles), '**')]).toBe('deny');
-    expect(parsed.permission.edit[path.join(profiles, '**')]).toBe('deny');
-    expect(parsed.permission.external_directory[path.relative(base, profiles)]).toBeUndefined();
+    expect(parsed.permission).toBeUndefined();
+    expect(ruleEffect(parsed.permissions, 'edit', path.join(path.relative(base, profiles), '**'))).toBe('deny');
+    expect(ruleEffect(parsed.permissions, 'edit', path.join(profiles, '**'))).toBe('deny');
+    expect(ruleEffect(parsed.permissions, 'external_directory', path.relative(base, profiles))).toBeUndefined();
   });
 
   it('denies resource edits relative to every candidate worktree', () => {
@@ -458,10 +503,15 @@ describe('buildOpenCodeMcpConfigContent', () => {
     const parsed = JSON.parse(buildOpenCodeMcpConfigContent([], {}, {
       readOnlyDirectories: [profiles], readOnlyEditBaseDirs: bases,
     })!);
+    expect(parsed.permission).toBeUndefined();
     for (const base of bases) {
-      expect(parsed.permission.edit[path.join(path.relative(base, profiles), '**')]).toBe('deny');
+      expect(ruleEffect(parsed.permissions, 'edit', path.join(path.relative(base, profiles), '**'))).toBe('deny');
     }
-    expect(Object.values(parsed.permission.edit)).not.toContain('allow');
+    expect(
+      (parsed.permissions as OpenCodeRule[])
+        .filter((rule) => rule.action === 'edit')
+        .map((rule) => rule.effect),
+    ).not.toContain('allow');
   });
 
   it('returns null when no enabled servers (avoids polluting OPENCODE_CONFIG_CONTENT)', () => {
@@ -495,14 +545,14 @@ describe('buildOpenCodeMcpConfigContent', () => {
 
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw as string) as {
-      permission?: {
-        external_directory?: Record<string, string>;
-      };
+      permissions?: OpenCodeRule[];
       mcp?: Record<string, unknown>;
+      permission?: unknown;
     };
 
     expect(parsed.mcp).toBeUndefined();
-    expect(parsed.permission?.external_directory).toEqual({
+    expect(parsed.permission).toBeUndefined();
+    expect(rulesRecord(parsed.permissions, 'external_directory')).toEqual({
       '/tmp/od-project': 'allow',
       '/tmp/od-project/*': 'allow',
       '/tmp/od-project/**': 'allow',
@@ -529,18 +579,18 @@ describe('buildOpenCodeMcpConfigContent', () => {
 
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw as string) as {
-      permission?: {
-        external_directory?: Record<string, string>;
-      };
-      mcp: Record<string, Record<string, unknown>>;
+      permissions?: OpenCodeRule[];
+      mcp: { servers: Record<string, Record<string, unknown>> };
+      permission?: unknown;
     };
 
-    expect(parsed.mcp['basic-memory']).toEqual({
+    expect(parsed.permission).toBeUndefined();
+    expect(parsed.mcp.servers['basic-memory']).toEqual({
       type: 'local',
       command: ['/opt/homebrew/bin/uvx', 'basic-memory', 'mcp'],
-      enabled: true,
+      disabled: false,
     });
-    expect(parsed.permission?.external_directory).toMatchObject({
+    expect(rulesRecord(parsed.permissions, 'external_directory')).toMatchObject({
       '/tmp/od-project': 'allow',
       '/tmp/od-project/*': 'allow',
       '/tmp/od-project/**': 'allow',
@@ -577,16 +627,18 @@ describe('buildOpenCodeMcpConfigContent', () => {
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw as string) as {
       provider?: Record<string, unknown>;
-      mcp?: Record<string, unknown>;
-      permission?: { external_directory?: Record<string, string> };
+      mcp?: { servers?: Record<string, unknown> };
+      permissions?: OpenCodeRule[];
+      permission?: unknown;
     };
 
     expect(parsed.provider?.['open-design-byok']).toMatchObject({
       name: 'OpenDesign BYOK',
       npm: '@ai-sdk/openai-compatible',
     });
-    expect(parsed.mcp?.['basic-memory']).toBeTruthy();
-    expect(parsed.permission?.external_directory?.['/tmp/od-project']).toBe('allow');
+    expect(parsed.permission).toBeUndefined();
+    expect(parsed.mcp?.servers?.['basic-memory']).toBeTruthy();
+    expect(ruleEffect(parsed.permissions, 'external_directory', '/tmp/od-project')).toBe('allow');
   });
 
   it('serialises a stdio server to OpenCode local schema (type=local, command=[cmd,...args])', () => {
@@ -602,12 +654,12 @@ describe('buildOpenCodeMcpConfigContent', () => {
     expect(raw).not.toBeNull();
     expect(typeof raw).toBe('string');
     const parsed = JSON.parse(raw as string) as {
-      mcp: Record<string, Record<string, unknown>>;
+      mcp: { servers: Record<string, Record<string, unknown>> };
     };
-    expect(parsed.mcp['basic-memory']).toEqual({
+    expect(parsed.mcp.servers['basic-memory']).toEqual({
       type: 'local',
       command: ['/opt/homebrew/bin/uvx', 'basic-memory', 'mcp'],
-      enabled: true,
+      disabled: false,
     });
   });
 
@@ -623,13 +675,13 @@ describe('buildOpenCodeMcpConfigContent', () => {
       },
     ]);
     const parsed = JSON.parse(raw as string) as {
-      mcp: Record<string, Record<string, unknown>>;
+      mcp: { servers: Record<string, Record<string, unknown>> };
     };
-    expect(parsed.mcp.github).toEqual({
+    expect(parsed.mcp.servers.github).toEqual({
       type: 'local',
       command: ['npx', '-y', '@modelcontextprotocol/server-github'],
       environment: { GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_xxx' },
-      enabled: true,
+      disabled: false,
     });
   });
 
@@ -644,13 +696,13 @@ describe('buildOpenCodeMcpConfigContent', () => {
       },
     ]);
     const parsed = JSON.parse(raw as string) as {
-      mcp: Record<string, Record<string, unknown>>;
+      mcp: { servers: Record<string, Record<string, unknown>> };
     };
-    expect(parsed.mcp.higgsfield).toEqual({
+    expect(parsed.mcp.servers.higgsfield).toEqual({
       type: 'remote',
       url: 'https://mcp.higgsfield.ai',
       headers: { Authorization: 'Bearer abc' },
-      enabled: true,
+      disabled: false,
     });
   });
 
@@ -670,9 +722,9 @@ describe('buildOpenCodeMcpConfigContent', () => {
       },
     ]);
     const parsed = JSON.parse(raw as string) as {
-      mcp: Record<string, unknown>;
+      mcp: { servers: Record<string, unknown> };
     };
-    expect(Object.keys(parsed.mcp)).toEqual(['a']);
+    expect(Object.keys(parsed.mcp.servers)).toEqual(['a']);
   });
 
   it('skips stdio servers missing a command (sanitize lets them through; we must guard at build)', () => {
@@ -691,9 +743,9 @@ describe('buildOpenCodeMcpConfigContent', () => {
       },
     ]);
     const parsed = JSON.parse(raw as string) as {
-      mcp: Record<string, unknown>;
+      mcp: { servers: Record<string, unknown> };
     };
-    expect(Object.keys(parsed.mcp)).toEqual(['good']);
+    expect(Object.keys(parsed.mcp.servers)).toEqual(['good']);
   });
 
   it('skips remote servers missing a url', () => {
@@ -722,9 +774,9 @@ describe('buildOpenCodeMcpConfigContent', () => {
       { higgsfield: 'access-tok-xyz' },
     );
     const parsed = JSON.parse(raw as string) as {
-      mcp: Record<string, Record<string, unknown>>;
+      mcp: { servers: Record<string, Record<string, unknown>> };
     };
-    expect(parsed.mcp.higgsfield?.headers).toEqual({
+    expect(parsed.mcp.servers.higgsfield?.headers).toEqual({
       Authorization: 'Bearer access-tok-xyz',
     });
   });
@@ -744,9 +796,9 @@ describe('buildOpenCodeMcpConfigContent', () => {
       { higgsfield: 'access-tok-xyz' },
     );
     const parsed = JSON.parse(raw as string) as {
-      mcp: Record<string, Record<string, unknown>>;
+      mcp: { servers: Record<string, Record<string, unknown>> };
     };
-    expect(parsed.mcp.higgsfield?.headers).toEqual({
+    expect(parsed.mcp.servers.higgsfield?.headers).toEqual({
       authorization: 'Bearer manual-token',
     });
   });
