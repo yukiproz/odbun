@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# odbun — shim for the RADICAL Bun-native OpenDesign build.
+# Sibling of `od` (pristine hybrid build); the two never share state:
+#   od    → open-design-bun/        + data/        + port 7456 + Node
+#   odbun → odbun/ + data-od-bun/ + port 7457 + Bun only
+#
+# Native differences vs `od`:
+#   - the daemon is executed with bun, never node
+#   - OPENCODE_BIN points at the REAL OpenCode v2 binary — no translator
+#     wrapper (patches P1–P4 make the daemon speak v2 itself)
+set -euo pipefail
+
+PROJECT="$HOME/open-design-hadiproz"
+export OD_DATA_DIR="$PROJECT/data-od-bun"
+PORT="${ODBUN_PORT:-7457}"
+
+if [ -z "${OPENCODE_BIN:-}" ]; then
+  # Real v2 binary, exactly as installed — NOT opencode-v2-wrapper.sh.
+  if [ -x "$HOME/.opencode/bin/opencode" ]; then
+    export OPENCODE_BIN="$HOME/.opencode/bin/opencode"
+  else
+    export OPENCODE_BIN="$(command -v opencode)"
+  fi
+fi
+
+exec bun "$PROJECT/odbun/apps/daemon/bin/od.mjs" --port "$PORT" "$@"

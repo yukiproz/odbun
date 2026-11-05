@@ -1,0 +1,45 @@
+# odbun CI — this port's own workflow (Bun only, no Node anywhere).
+# Scaffold scope: the port layer (adapters + spikes). The daemon build
+# and Bun smoke gates join this file as the PORTING.md stages land.
+name: odbun-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  port-layer:
+    name: port layer (bun test + spikes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun 1.4.4
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Guard — no Node in the port layer
+        run: |
+          if grep -rn '"node"' port/package.json; then
+            echo "unexpected node reference in port/package.json" >&2
+            exit 1
+          fi
+          bun --version
+
+      - name: Adapter tests
+        working-directory: port
+        run: bun test
+
+      - name: Spikes
+        working-directory: port
+        run: |
+          bun run spikes/01-sqlite.ts
+          bun run spikes/02-spawn.ts
+          bun run spikes/03-serve.ts
+          bun run spikes/04-terminal.ts
