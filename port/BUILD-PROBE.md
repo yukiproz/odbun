@@ -32,16 +32,22 @@ ONNXRUNTIME_NODE_INSTALL_CUDA=skip bun install --ignore-scripts \
   --filter @open-design/diagnostics --filter @open-design/daemon
 ```
 
-- **Attempt 1**: log ends after `Resolved, downloaded and extracted
-  [2312]` (lockfile migration from `pnpm-lock.yaml` took 81.99 s of it).
-  No `bun.lock` and no completion footer were present in the tree
-  afterwards — the attempt did the resolution/download/extraction and
-  most linking, but its finalisation is **not** in-tree evidence, so
-  this probe does not count it as completed.
-- **Attempt 2** (identical command): **exit 0, 190 s**, `6 packages
-  installed` (incremental over attempt 1), `bun.lock` written
-  (375,393 bytes), and Bun's pnpm→Bun manifest migration applied to
-  root `package.json` (see §6).
+- **Attempt 1**: **exit 0, 407 s, `1037 packages installed`**, footer
+  includes the pnpm→Bun manifest migration lines and `Saved lockfile`
+  (plus `Blocked 4 postinstalls` — the `--ignore-scripts` holds, see
+  `bun pm untrusted`). Lockfile migration from `pnpm-lock.yaml` took
+  81.99 s of the run; resolution line: `Resolved, downloaded and
+  extracted [2312]`. (Process note: attempt 1's completion was only
+  delivered after this probe's later steps had started — a mid-run
+  tree check at ~200 s showed the log ending at extraction with no
+  `bun.lock` yet, which is why attempt 2 exists at all. The two runs
+  overlapped; final tree consistency is proven independently by the
+  §2 frozen-lockfile pass, the dedupe pass, and both green builds.)
+- **Attempt 2** (identical command, started before attempt 1's
+  completion was visible): **exit 0, 190 s**, `6 packages installed`
+  (incremental over attempt 1), `bun.lock` present at 375,393 bytes,
+  and Bun's pnpm→Bun manifest migration applied to root
+  `package.json` (see §6).
 - Totals for the closure: **1,369 packages** in the resolution set
   (matches the parent's count exactly), 1,043 entries in the
   `node_modules/.bun` store, **`node_modules` = 2,048 MB**.
