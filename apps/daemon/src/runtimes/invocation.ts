@@ -48,12 +48,17 @@ export function execAgentFile(
     // outright. A caller's own killSignal still wins over this default.
     killSignal: options.killSignal ?? 'SIGKILL',
     // The bounded option surface execFileBun implements (audited: these
-    // are the only fields execAgentFile call sites pass).
-    timeout: options.timeout,
-    maxBuffer: options.maxBuffer,
-    env: options.env,
-    signal: options.signal,
+    // are the only fields execAgentFile call sites pass). Optional fields
+    // are spread in only when defined: ExecFileBunOptions is an
+    // exactOptionalPropertyTypes surface, and execFileBun reads absent
+    // and undefined identically.
+    ...(options.timeout !== undefined ? { timeout: options.timeout } : {}),
+    ...(options.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
+    ...(options.env !== undefined ? { env: options.env } : {}),
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
     cwd: typeof cwdOption === 'string' ? cwdOption : decodeURIComponent(cwdOption.pathname),
-    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    ...(invocation.windowsVerbatimArguments !== undefined
+      ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments }
+      : {}),
   });
 }

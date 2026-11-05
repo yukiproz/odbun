@@ -528,7 +528,9 @@ export function buildOpenCodeMcpConfigContent(
     priorPermission,
     externalDirectory,
     readOnlyDirectory,
-    readOnlyEditBaseDirs: options.readOnlyEditBaseDirs,
+    ...(options.readOnlyEditBaseDirs !== undefined
+      ? { readOnlyEditBaseDirs: options.readOnlyEditBaseDirs }
+      : {}),
     priorRules: Array.isArray(config.permissions)
       ? config.permissions as OpenCodePermissionRule[]
       : [],

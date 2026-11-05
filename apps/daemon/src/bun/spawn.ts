@@ -54,11 +54,16 @@ export async function spawnCapture(
 ): Promise<SpawnResult> {
   if (cmd.length === 0) throw new Error('bun-spawn: empty command');
   const proc = Bun.spawn(cmd, {
-    cwd: opts.cwd,
+    ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
     env: buildEnv(opts),
     stdin:
       opts.stdin === 'inherit' ? 'inherit'
       : opts.stdin === 'ignore' ? 'ignore'
+      // Bun.spawn throws on a plain-string stdin at runtime (and
+      // bun-types' SpawnOptions.Writable has no string member):
+      // encode string input to the UTF-8 bytes it can only ever
+      // have meant.
+      : typeof opts.stdin === 'string' ? new TextEncoder().encode(opts.stdin)
       : opts.stdin ?? 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
@@ -76,7 +81,7 @@ export async function spawnCapture(
 export function spawnStreaming(cmd: string[], opts: SpawnOptions = {}) {
   if (cmd.length === 0) throw new Error('bun-spawn: empty command');
   return Bun.spawn(cmd, {
-    cwd: opts.cwd,
+    ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
     env: buildEnv(opts),
     stdin: 'pipe',
     stdout: 'pipe',
@@ -131,7 +136,10 @@ export function spawnSyncCapture(
 ): SpawnSyncResult {
   const result = (Bun as any).spawnSync([file, ...args], {
     cwd: opts.cwd,
-    env: buildEnv({ cwd: opts.cwd, env: opts.env }),
+    env: buildEnv({
+      ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+      ...(opts.env !== undefined ? { env: opts.env } : {}),
+    }),
     timeout: opts.timeout,
     stdout: 'pipe',
     stderr: 'pipe',

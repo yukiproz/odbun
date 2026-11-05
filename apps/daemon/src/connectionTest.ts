@@ -1485,7 +1485,7 @@ export async function testProviderConnection(
     // Target-aware: a NO_PROXY match (loopback providers are merged in
     // by default) drops the proxy for this provider, as the old
     // per-URL dispatcher dispatch did.
-    proxyDispatcher = proxyDispatcherRequestInit(process.env, {}, validated.parsed);
+    proxyDispatcher = proxyDispatcherRequestInit(process.env, {}, validated.parsed.toString());
     const modelError = await validateLocalOpenAiModel(
       normalizedInput,
       validated.parsed,

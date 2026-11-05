@@ -71,6 +71,7 @@
     "esbuild": "0.28.0",
     "@typescript/native": "npm:typescript@7.0.2",
     "@babel/types": "7.29.0",
+    "@types/bun": "1.4.4",
     "@types/express": "5.0.6",
     "@types/multer": "2.1.0",
     "@types/node": "20.19.39",
