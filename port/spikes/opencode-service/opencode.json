@@ -1,0 +1,60 @@
+{
+  "providers": {
+    "baseten-muse": {
+      "name": "Baseten",
+      "env": ["BASETEN_API_KEY"],
+      "package": "aisdk:@ai-sdk/openai",
+      "settings": {
+        "baseURL": "https://inference.baseten.co/v1"
+      },
+      "models": {
+        "meta-models/muse-spark-open-1026": {
+          "name": "Muse Spark Open (Baseten)",
+          "capabilities": {
+            "tools": true,
+            "input": [
+              "text",
+              "image",
+              "video",
+              "pdf",
+              "audio"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "variants": [
+            {
+              "id": "low",
+              "settings": {
+                "reasoningEffort": "low"
+              }
+            },
+            {
+              "id": "medium",
+              "settings": {
+                "reasoningEffort": "medium"
+              }
+            },
+            {
+              "id": "high",
+              "settings": {
+                "reasoningEffort": "high"
+              }
+            },
+            {
+              "id": "xhigh",
+              "settings": {
+                "reasoningEffort": "xhigh"
+              }
+            }
+          ],
+          "limit": {
+            "context": 1048576,
+            "output": 131072
+          }
+        }
+      }
+    }
+  }
+}

@@ -27,7 +27,18 @@
 // Report: port/spikes/opencode-service/report.json (env SPIKE_REPORT wins).
 // Exit: 0 when stages discover/health/catalog/session-create/session-reread
 // pass. The run stage is data (RUN_OK | AUTH_REQUIRED | RUN_ERROR), never
-// pass/fail — answering the free-tier auth question is the point.
+// pass/fail — answering the auth question is the point.
+//
+// Modes:
+//   free (default) — run a free model of the built-in `opencode`
+//     provider; run stage is named "run-free-model".
+//   targeted (SPIKE_PROVIDER set, with SPIKE_MODEL / SPIKE_VARIANT) —
+//     run that exact catalog model instead; run stage is named
+//     "run-model". Used for Hadi's custom `baseten-muse` provider
+//     (Muse Spark Open on Baseten): the workflow installs
+//     opencode.json as the global config and passes the credential to
+//     the service process by env name only. This client never reads
+//     or logs any provider credential.
 
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -83,6 +94,14 @@ function flattenText(value: unknown): string {
   }
 }
 const AUTH_PATTERN = /auth|unauthor|forbidden|log ?in|sign[ -]?in|credential|api[ -]?key|payment|billing/i;
+
+// Targeted (custom-provider) mode — see header. Absent envs = free mode,
+// with all pre-existing behaviour preserved.
+const spikeProvider = process.env.SPIKE_PROVIDER || undefined;
+const spikeModel = process.env.SPIKE_MODEL || undefined;
+const spikeVariant = process.env.SPIKE_VARIANT || undefined;
+const targeted = spikeProvider !== undefined;
+const runStageName = targeted ? "run-model" : "run-free-model";
 
 const registrationPath = join(
   process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"),
@@ -161,7 +180,7 @@ try {
 }
 
 if (info === undefined) {
-  skipFrom(["health", "catalog", "session-create", "run-free-model", "session-reread", "cleanup"], "discovery failed");
+  skipFrom(["health", "catalog", "session-create", runStageName, "session-reread", "cleanup"], "discovery failed");
 } else {
   // ------------------------------------------------------------------ health
   // Mirrors service-probe.ts probeResult(): GET /api/info, body must decode
@@ -198,20 +217,24 @@ if (info === undefined) {
   }
 
   if (!healthy) {
-    skipFrom(["catalog", "session-create", "run-free-model", "session-reread", "cleanup"], "health probe not ready");
+    skipFrom(["catalog", "session-create", runStageName, "session-reread", "cleanup"], "health probe not ready");
   } else {
     // ---------------------------------------------------------------- catalog
     // The snapshot may precede initial plugin settlement (model.list
-    // annotation), so poll until the opencode provider's free models show
-    // up or the budget runs out.
+    // annotation), so poll until the run model shows up or the budget
+    // runs out. Targeted mode polls longer (180 s): a custom provider's
+    // aisdk package may need to be fetched on first load.
     let providers: Array<{ id: string; name: string }> = [];
     let models: ModelInfo[] = [];
     let freeModels: ModelInfo[] = [];
+    let targetModels: ModelInfo[] = [];
     let attempts = 0;
     let catalogError: Record<string, unknown> | undefined;
-    const deadline = Date.now() + 90_000;
+    const deadline = Date.now() + (targeted ? 180_000 : 90_000);
     const isFree = (m: ModelInfo) =>
       m.providerID === "opencode" && (/free/i.test(m.id) || /free/i.test(m.modelID) || /free/i.test(m.name));
+    const isTarget = (m: ModelInfo) =>
+      targeted && m.providerID === spikeProvider && (m.modelID === spikeModel || m.id === spikeModel);
     while (true) {
       attempts++;
       try {
@@ -228,28 +251,51 @@ if (info === undefined) {
           providers = Array.isArray(providerData) ? (providerData as Array<{ id: string; name: string }>) : [];
           models = Array.isArray(modelData) ? (modelData as ModelInfo[]) : [];
           freeModels = models.filter(isFree);
+          targetModels = models.filter(isTarget);
         }
       } catch (error) {
         catalogError = { error: error instanceof Error ? error.message : String(error) };
       }
-      if (freeModels.length > 0 || Date.now() >= deadline) break;
-      if (attempts >= 3 && models.length > 0 && catalogError === undefined) break; // settled, just no free tier
+      if (targeted) {
+        if (targetModels.length > 0 || Date.now() >= deadline) break;
+      } else {
+        if (freeModels.length > 0 || Date.now() >= deadline) break;
+        if (attempts >= 3 && models.length > 0 && catalogError === undefined) break; // settled, just no free tier
+      }
       await Bun.sleep(3_000);
     }
-    const variantSample = [...freeModels, ...models.filter((m) => !isFree(m)).slice(0, 5)].map((m) => ({
+    const toSample = (m: ModelInfo) => ({
       ref: `${m.providerID}/${m.id}`,
       variantIds: (m.variants ?? []).map((v) => v.id),
-    }));
-    const preferred =
-      freeModels.find((m) => /deepseek/i.test(`${m.id} ${m.name}`) && /flash/i.test(`${m.id} ${m.name}`)) ??
-      freeModels[0];
-    if (preferred !== undefined) {
-      chosen = {
-        providerID: preferred.providerID,
-        id: preferred.id,
-        modelID: preferred.modelID,
-        name: preferred.name,
-      };
+    });
+    const variantSample = [
+      ...targetModels.map(toSample),
+      ...[...freeModels, ...models.filter((m) => !isFree(m)).slice(0, 5)]
+        .map(toSample)
+        .filter((s) => !targetModels.some((m) => `${m.providerID}/${m.id}` === s.ref)),
+    ];
+    if (targeted) {
+      const target = targetModels[0];
+      if (target !== undefined) {
+        chosen = {
+          providerID: target.providerID,
+          id: target.id,
+          modelID: target.modelID,
+          name: target.name,
+        };
+      }
+    } else {
+      const preferred =
+        freeModels.find((m) => /deepseek/i.test(`${m.id} ${m.name}`) && /flash/i.test(`${m.id} ${m.name}`)) ??
+        freeModels[0];
+      if (preferred !== undefined) {
+        chosen = {
+          providerID: preferred.providerID,
+          id: preferred.id,
+          modelID: preferred.modelID,
+          name: preferred.name,
+        };
+      }
     }
     const catalogOk = catalogError === undefined && (providers.length > 0 || models.length > 0);
     record("catalog", catalogOk, {
@@ -258,6 +304,14 @@ if (info === undefined) {
       providerIds: providers.map((p) => p.id).slice(0, 20),
       modelCount: models.length,
       freeModels: freeModels.map((m) => ({ id: m.id, modelID: m.modelID, name: m.name })),
+      ...(targeted
+        ? {
+            targetProvider: spikeProvider ?? null,
+            targetModel: spikeModel ?? null,
+            targetVariant: spikeVariant ?? null,
+            targetModels: targetModels.map((m) => ({ id: m.id, modelID: m.modelID, name: m.name })),
+          }
+        : {}),
       variantSample,
       chosen: chosen ?? null,
       ...(catalogError === undefined ? {} : { error: catalogError }),
@@ -270,7 +324,15 @@ if (info === undefined) {
         body: {
           title: "odbun P6 spike (opencode service)",
           location: { directory: workdir },
-          ...(chosen === undefined ? {} : { model: { providerID: chosen.providerID, id: chosen.id } }),
+          ...(chosen === undefined
+            ? {}
+            : {
+                model: {
+                  providerID: chosen.providerID,
+                  id: chosen.id,
+                  ...(spikeVariant === undefined ? {} : { variant: spikeVariant }),
+                },
+              }),
         },
         timeout: 30_000,
       });
@@ -299,14 +361,16 @@ if (info === undefined) {
     }
 
     if (sessionID === undefined) {
-      skipFrom(["run-free-model", "session-reread", "cleanup"], "no session was created");
+      skipFrom([runStageName, "session-reread", "cleanup"], "no session was created");
     } else {
-      // ------------------------------------------------------------ run (free model)
+      // ------------------------------------------------------------ run (model)
       const runDetail: Record<string, unknown> = { model: chosen ?? null };
       if (chosen === undefined) {
         runClassification = "RUN_ERROR";
-        runDetail.reason = "catalog exposed no free model on the built-in opencode provider";
-        record("run-free-model", false, { classification: runClassification, ...runDetail });
+        runDetail.reason = targeted
+          ? `catalog exposed no target model ${spikeProvider}/${spikeModel}`
+          : "catalog exposed no free model on the built-in opencode provider";
+        record(runStageName, false, { classification: runClassification, ...runDetail });
       } else {
         const counts = new Map<string, number>();
         const sequence: string[] = [];
@@ -431,7 +495,7 @@ if (info === undefined) {
         else if (AUTH_PATTERN.test(errorText)) runClassification = "AUTH_REQUIRED";
         else runClassification = "RUN_ERROR";
 
-        record("run-free-model", runClassification === "RUN_OK", {
+        record(runStageName, runClassification === "RUN_OK", {
           classification: runClassification,
           ...runDetail,
           streamStatus: streamStatus ?? null,
@@ -515,6 +579,9 @@ const report = {
       : { url: info.url, pid: info.pid, version: info.version ?? null, id: info.id ?? null },
   workdir: workdir === "" ? null : workdir,
   chosenModel: chosen ?? null,
+  targetProvider: spikeProvider ?? null,
+  targetModel: spikeModel ?? null,
+  targetVariant: spikeVariant ?? null,
   sessionID: sessionID ?? null,
   runClassification: runClassification ?? null,
   stages,
