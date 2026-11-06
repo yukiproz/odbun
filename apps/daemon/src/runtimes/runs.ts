@@ -2578,6 +2578,17 @@ export function createChatRunService({
       const terminationResult = await termination;
       finish(run, 'canceled', null, terminationResult.forced ? 'SIGKILL' : 'SIGTERM');
     }));
+    // Journal durability barrier. commitFinish flushes each run's event
+    // journal asynchronously: the terminal record can still sit in the
+    // log stream's buffer (eventsLogFinalFlush unsettled) after the run
+    // is already reported terminal, and under Bun that drain measurably
+    // lags the finish by tens to hundreds of milliseconds. Shutdown is
+    // the restart boundary — recovery replays these journals verbatim —
+    // so do not cross it until every journal flush has settled.
+    await Promise.all(Array.from(runs.values()).map(async (run) => {
+      if (!run.eventsLogFinalFlush) return;
+      try { await run.eventsLogFinalFlush; } catch { /* resolves boolean; never rejects */ }
+    }));
   };
 
   const wait = (run) => {
