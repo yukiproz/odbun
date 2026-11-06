@@ -11,7 +11,8 @@
     "R3",
     "R4",
     "R5",
-    "V1"
+    "V1",
+    "P6"
   ],
   "patches": [
     {
@@ -90,6 +91,12 @@
       "status": "parked",
       "summary": "Vela team/cloud integration PARKED in the Bun build (Hadi, 2026-11-06): upstream's external team CLI (daemon shells out via src/integrations/vela-command.ts; collab adapters, AMR runtime binary, login/billing/team-projects/share) is not carried by odbun's local/single-user web scope. Its 73 test suites are excluded on BOTH harnesses via apps/daemon/tests/parked-features.json (wired in apps/daemon/vitest.config.ts); production code stays in tree, dormant and untouched — Vela is rooted in 122 src files, so removal was rejected in favour of parking. Census and borderline calls: port/TEST-SUITES.md §8",
       "supersededBy": "a future decision to carry team features"
+    },
+    {
+      "file": "P6-DESIGN.md",
+      "id": "P6",
+      "status": "designed",
+      "summary": "OpenCode deep integration (design only, port/P6-DESIGN.md): odbun as a first-class client of the user's own opencode service daemon — no spawned servers, full v2 API surface (sessions, streaming, catalog, permissions, questions, MCP, steering, model switch) as a transport mode on the existing opencode def; CLI-spawn transport retires only after the doc's acceptance criteria pass"
     }
   ],
   "version": 1,
