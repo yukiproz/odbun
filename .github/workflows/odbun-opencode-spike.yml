@@ -1,0 +1,171 @@
+# odbun spike (P6) — drive the opencode v2 *user service* from a clean
+# runner. Dispatch-only: this is a probe, not a gate.
+#
+# The service is the daemon registered by `opencode service start`
+# (registration file ~/.local/state/opencode/service.json). The legacy
+# `opencode serve` embed path is deliberately NOT exercised: the spike
+# client (port/spikes/opencode-service/spike-client.ts) discovers the
+# service from its registration file and speaks only to its HTTP API,
+# the same way the official v2 client does.
+#
+# The run stage uses a free model from the built-in `opencode` provider
+# and classifies the outcome (RUN_OK / AUTH_REQUIRED / RUN_ERROR) as
+# data: a red job means the wire contract itself broke, not that the
+# free tier demanded auth. Details: port/spikes/opencode-service/README.md.
+name: odbun-opencode-spike
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  opencode-service-spike:
+    name: opencode service spike (P6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun 1.4.4
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      # Pinned opencode v2.2.5 release asset (anomalyco/opencode).
+      # sha256 from the release asset digest, cross-checked against the
+      # release's SHA256SUMS file (both:
+      # 09f44302c10fd036912f59c81fd1aef5df45dd06f649197f9dfc9bbe2a79614e).
+      - name: Install pinned opencode v2.2.5 binary
+        env:
+          OPENCODE_ASSET: opencode-linux-x64.tar.gz
+          OPENCODE_URL: https://github.com/anomalyco/opencode/releases/download/v2.2.5/opencode-linux-x64.tar.gz
+          OPENCODE_SHA256: 09f44302c10fd036912f59c81fd1aef5df45dd06f649197f9dfc9bbe2a79614e
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/opencode" "$HOME/.local/bin"
+          curl -fL --retry 3 -o "$RUNNER_TEMP/opencode/$OPENCODE_ASSET" "$OPENCODE_URL"
+          echo "$OPENCODE_SHA256  $RUNNER_TEMP/opencode/$OPENCODE_ASSET" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/opencode/$OPENCODE_ASSET" -C "$RUNNER_TEMP/opencode"
+          bin="$(find "$RUNNER_TEMP/opencode" -type f -name opencode | head -n 1)"
+          test -n "$bin"
+          install -m 0755 "$bin" "$HOME/.local/bin/opencode"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: opencode version (evidence)
+        run: opencode --version
+
+      - name: Start the opencode user service
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/spike-artifacts"
+          opencode service start | tee "$RUNNER_TEMP/spike-artifacts/service-start.log"
+
+      - name: Wait for service registration + health
+        run: |
+          set -uo pipefail
+          file="${XDG_STATE_HOME:-$HOME/.local/state}/opencode/service.json"
+          for attempt in $(seq 1 60); do
+            if [ -f "$file" ]; then
+              read -r svc_url svc_pw <<<"$(python3 - "$file" <<'PY'
+          import json, sys
+          try:
+              d = json.load(open(sys.argv[1]))
+              print(d.get("url", ""), d.get("password", ""))
+          except Exception:
+              print("", "")
+          PY
+          )"
+              if [ -n "$svc_url" ]; then
+                if [ -n "$svc_pw" ]; then
+                  code="$(curl -s -o /dev/null -w '%{http_code}' -u "opencode:$svc_pw" "$svc_url/api/info" || true)"
+                else
+                  code="$(curl -s -o /dev/null -w '%{http_code}' "$svc_url/api/info" || true)"
+                fi
+                echo "attempt $attempt: registration present, GET /api/info -> $code ($svc_url)"
+                if [ "$code" = "200" ]; then
+                  echo "service healthy"
+                  exit 0
+                fi
+              fi
+            else
+              echo "attempt $attempt: no registration file yet"
+            fi
+            sleep 3
+          done
+          echo "service never became healthy; diagnostics follow" >&2
+          opencode service status || true
+          if [ -f "$file" ]; then
+            python3 - "$file" <<'PY' || true
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          d.pop("password", None)
+          print(json.dumps(d, indent=2))
+          PY
+          fi
+          cat "$RUNNER_TEMP/spike-artifacts/service-start.log" || true
+          exit 1
+
+      - name: Run the spike client
+        run: bun port/spikes/opencode-service/spike-client.ts
+
+      - name: Show the spike report
+        if: always()
+        run: cat port/spikes/opencode-service/report.json || true
+
+      # Clean close: stop the service through its own CLI first, then kill
+      # any stray opencode processes by exact PID and verify none remain.
+      - name: Service cleanup
+        if: always()
+        run: |
+          set -uo pipefail
+          art="$RUNNER_TEMP/spike-artifacts"
+          mkdir -p "$art"
+          file="${XDG_STATE_HOME:-$HOME/.local/state}/opencode/service.json"
+          {
+            echo "== opencode service status =="
+            opencode service status || true
+          } | tee "$art/service-status.txt"
+          if [ -f "$file" ]; then
+            python3 - "$file" "$art/service-registration.redacted.json" <<'PY' || true
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          d.pop("password", None)
+          json.dump(d, open(sys.argv[2], "w"), indent=2)
+          PY
+          fi
+          opencode service stop || true
+          sleep 2
+          strays="$(pgrep -x opencode || true)"
+          if [ -n "$strays" ]; then
+            for pid in $strays; do
+              echo "killing stray opencode pid $pid"
+              kill "$pid" || true
+            done
+            sleep 5
+            strays="$(pgrep -x opencode || true)"
+            if [ -n "$strays" ]; then
+              for pid in $strays; do
+                echo "force-killing stray opencode pid $pid"
+                kill -9 "$pid" || true
+              done
+              sleep 1
+            fi
+          fi
+          if pgrep -x opencode >/dev/null; then
+            echo "WARNING: opencode processes remain:" >&2
+            pgrep -a -x opencode >&2 || true
+            exit 1
+          fi
+          echo "no opencode processes remain"
+
+      - name: Upload spike report + service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-service-spike
+          path: |
+            port/spikes/opencode-service/report.json
+            ${{ runner.temp }}/spike-artifacts/
+          if-no-files-found: warn
