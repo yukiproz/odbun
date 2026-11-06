@@ -752,6 +752,38 @@ the zod wall):**
    failures were load flakes — whether this one is a flake or a
    Bun-specific timing difference is **unverified**.
 
-**Exit condition (unchanged):** the dual-track exit condition —
-Bun fully green → Node track retires — is **not yet met**. The two
-failures above are the only remaining blockers.
+**Exit condition — MET (2026-11-06):** both remaining failures
+were chased to green in streams `port/fix-cms-ts7-bun`
+(`test(web): skip the TS7 3377 probe case under Bun`, `2548f26`) and
+`port/fix-fileviewer-deck-bun` (`test(web): await the preview frame
+in the shared-Personal deck hold case`, `52173cd`), merged as
+`ba8b10c` and `4a3e412`.
+
+- TS7 3377: the SyncRpcChannel spawns its native server via
+  `node:child_process` and reads pipe fds off the child stdio
+  streams' libuv handles (`child.stdout._handle.fd`); Bun 1.4.4's
+  child_process compat returns handle-less streams, so `new API`
+  throws before any checking. The API exposes no fd injection
+  point — the single case is skip-guarded under Bun (§7.2
+  precedent) and still executes under Node (72/72 there).
+- FileViewer deck hold: a test-side race — the case asserted on
+  the frame synchronously after observing the files read, but the
+  frame mounts only after the deck load+parse pipeline lands,
+  which is slower under Bun/jsdom (frame first present ~595 ms
+  in the cold probe). Awaiting the frame in srcdoc mode first —
+  the signal the sibling cases already use — fixed it with no
+  production change and no weakened assertion (Bun 10/10, Node
+  3/3, neighbours 4 files / 37 tests on both runtimes).
+
+**Verification — CI run 42194971430 (tree `4a3e412`), overall
+conclusion success, all 5 jobs green:**
+
+- Daemon step (Bun): **975 files passed / 5 skipped (980);
+  12,727 tests passed / 24 skipped (12,751)**.
+- Web step (Bun): **1,405 files passed (1,405); 15,623 tests
+  passed / 1 expected fail / 12 skipped (15,636), 0 failed.**
+- Node gate, port layer, daemon smoke, typecheck: all green.
+
+The dual-track exit condition — Bun fully green → Node track
+retires — is **met**. Retiring the Node track in CI config is a
+separate step, awaiting Hadi's word.
