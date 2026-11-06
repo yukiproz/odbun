@@ -620,3 +620,36 @@ listings above are the config-load proof for both runtimes). Port
 layer `bun test` 11/11. Manifest JSON valid, sorted, 73 unique
 entries; `port-items.json` valid with V1 appended. Post-merge
 full-suite Actions totals are the coordinator's step.
+
+## 9. Known issue: usage-recovery journal-tail race (parked 2026-11-06)
+
+**Decision (Hadi, 2026-11-06):** parked as a known issue, not fixed and
+not masked. The suite `tests/observability/usage-recovery.test.ts`
+stays collected on both tracks; its intermittent failures are
+expected noise until the unpark condition below fires.
+
+- **Symptom:** after an in-process server restart, the events journal
+  (`events.jsonl`) is missing its trailing 1–4 records at the moment
+  the test reads it. The three failing cases are the normal,
+  duplicate, and late native-usage semantics tests.
+- **Late, not lost (proven):** a 1.5 s delay before the read cures it
+  5/5. Durability of the journal itself is not in question; this is
+  an emit-vs-read timing race around restart.
+- **Intermittence record:** identical code flips 5/5 → 3/5 → 2/5
+  locally (stream `port/parity-bun-tail`); failed on the pristine
+  base in CI run 42098809569 (4 tests) and again in the final parity
+  run 42116642811 (3 tests) — pre-existing, not a port regression.
+- **Cleared suspects:** Bun `fs.WriteStream` write-callback and
+  `end(cb)` ordering are correct for file streams; the broken
+  stdout/stderr pipe primitive (see the `cli.ts` flush fix) is a
+  different mechanism.
+- **Suspect area (unproven):** the recorded-replay emit scheduling
+  vs `finish()` / `pendingTerminalFinish` emit gating in
+  `src/runtimes/runs.ts`. No production change was shipped because
+  no mechanism was proven; no test-side sleep was added because it
+  would mask a genuine durability question.
+- **Impact:** usage-accounting accuracy in the moments right after a
+  restart. No effect on projects, chat, runs, or any user data.
+- **Unpark condition:** chase when usage accounting becomes
+  load-bearing (cost tracking relied upon, multi-user use), or when
+  new evidence pins the mechanism in `runs.ts`.
