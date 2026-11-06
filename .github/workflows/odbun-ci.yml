@@ -14,7 +14,7 @@
 #                  rationale + exit condition in the job comment and
 #                  in port/TEST-SUITES.md.
 #   test-suites-bun — EXPERIMENTAL (continue-on-error): the daemon
-#                  suite on the Bun runtime — the Bun/Vitest
+#                  and web suites on the Bun runtime — the Bun/Vitest
 #                  compatibility tracker that replaces the Node track
 #                  once fully green.
 # Recipes and evidence: port/BUILD-PROBE.md, port/SMOKE-MAIN.md.
@@ -486,7 +486,7 @@ jobs:
         run: ./node_modules/.bin/vitest run -c vitest.config.ts --maxWorkers=2
 
   # EXPERIMENTAL Bun track (companion to the gate above): the daemon
-  # suite executed on the Bun runtime itself (bunx vitest). This is
+  # and web suites executed on the Bun runtime itself (bunx vitest). This is
   # the Bun/Vitest compatibility tracker — expected baseline and
   # failure triage in port/TEST-SUITES.md. continue-on-error until
   # it is fully green; then it becomes the gate and the Node track
@@ -494,7 +494,9 @@ jobs:
   test-suites-bun:
     name: test suites (Vitest on Bun runtime — experimental)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 60 (was 45 for the daemon suite alone): mirrors the Node gate,
+    # which budgets 60 for the same daemon+web pair.
+    timeout-minutes: 60
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -615,3 +617,15 @@ jobs:
       - name: Daemon Vitest suite on the Bun runtime
         working-directory: apps/daemon
         run: bunx --bun vitest run -c vitest.config.ts
+
+      # always(): same lesson as the Node track above — a daemon-suite
+      # failure must not skip the web suite; its numbers are
+      # independent signal. This step is the FIRST measurement of the
+      # web suite on the Bun runtime (until now this job ran the
+      # daemon suite only); the Node track's web numbers in
+      # port/TEST-SUITES.md are the comparison baseline. --maxWorkers=2
+      # mirrors the Node web step verbatim.
+      - name: Web Vitest suite on the Bun runtime
+        if: always()
+        working-directory: apps/web
+        run: bunx --bun vitest run -c vitest.config.ts --maxWorkers=2
