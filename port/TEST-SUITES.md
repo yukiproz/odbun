@@ -787,3 +787,67 @@ conclusion success, all 5 jobs green:**
 The dual-track exit condition — Bun fully green → Node track
 retires — is **met**. Retiring the Node track in CI config is a
 separate step, awaiting Hadi's word.
+
+## 11. CI gate swap — Bun single gate, Node update-only baseline (2026-11-06)
+
+**Superseding note:** §10 closed with the dual-track exit condition
+met and Node-track retirement "awaiting Hadi's word". That word has
+since been given, and the outcome is **not** outright retirement:
+the Node track is demoted to a non-gating upstream-triage baseline
+(below). §10's history stands as written.
+
+**Decision (Hadi, 2026-11-06):** Bun is the single CI gate for
+odbun; the Node suite no longer gates anything. It survives as a
+non-gating upstream-triage baseline: upstream (nexu-io/open-design)
+devs write and test on Node, so running the same tree on Node
+cleanly separates port regression vs upstream change vs Bun
+interop issues when a future upstream update is being triaged.
+The Node job therefore runs only where triage happens:
+
+- pushes to `update/**` branches,
+- pull requests whose head branch starts with `update/`,
+- manual `workflow_dispatch`.
+
+**Implementation:** commit `5852954` on branch `port/ci-bun-gate`,
+merged to `main` as `e36546a`. Exactly one file changed —
+`.github/workflows/odbun-ci.yml`:
+
+- Bun job (`test-suites-bun`): `continue-on-error: true` removed;
+  renamed "test suites (Vitest on Bun runtime — gate)".
+- Node job (`test-suites`): renamed "test suites (Vitest on
+  preinstalled Node — update baseline)"; gated by a job-level
+  `if:` matching the three trigger conditions above.
+- Push trigger branches extended to `[main, 'update/**']`.
+- All steps in all jobs unchanged.
+
+**Verification — two runs on tree `e36546a` (2026-11-06):**
+
+*Main push, run 42202009266 — conclusion SUCCESS:*
+
+- Bun gate: **975 files passed / 5 skipped (980); 12,727 tests
+  passed / 24 skipped (12,751)** daemon; **1,405 files passed
+  (1,405); 15,623 tests passed / 1 expected fail / 12 skipped
+  (15,636)** web — counts identical to run 42194971430.
+- Node baseline: **skipped**, as configured.
+- Port layer, typecheck, daemon smoke: all green.
+
+*Update branch, run 42202199637 — conclusion FAILURE (flake, not
+gate logic):* the same tree pushed to the throwaway branch
+`update/ci-gate-smoke` to exercise the update-branch trigger:
+
+- Node baseline: **ran and succeeded** (22m53s) — the
+  update-branch trigger works.
+- Bun gate failed on exactly one daemon test:
+  `apps/daemon/tests/run-retry-runtime.test.ts:297` — "does not
+  retry after a title-only clean ACP result with no usage",
+  `AssertionError`: expected the array of start events to have a
+  length of 1 but got 2. Daemon **12,726 / 12,727** passed; web
+  fully green. The identical tree passed on main in run
+  42202009266, so this is a timing flake in that test, not a
+  failure of the gate swap.
+
+**Verdict:** the gate swap works end-to-end — on `main` the Node
+job is skipped and the run's conclusion follows the Bun gate; on
+an `update/**` branch the Node baseline actually runs. The
+throwaway branch `update/ci-gate-smoke` was deleted (remote +
+local) after verification.
