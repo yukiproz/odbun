@@ -23,7 +23,7 @@ What changes for the user:
 **Locked decisions** (Hadi, 2026-11-06 — encoded here, not relitigated):
 
 - odbun spawns **no** server: not per-workspace `opencode serve` (rejected: old method, many child processes, RAM-heavy), and it never starts, stops, restarts, or replaces the user's service. If the service is down, odbun surfaces its status and points the user to `opencode service start`; auto-start is an opt-in setting, default **off** (§4).
-- "Deep" means the **full API surface** — sessions, streaming, catalog, permissions, questions, MCP, steering, interruption, mid-session model switch where the API supports it. It does **not** mean embedding or forking opencode internals. The official GUI/TUI are themselves pure API clients of this service (`packages/cli/src/commands/handlers/run.ts` resolves a server connection before doing anything else), so parity with them is both the ceiling and the proof that the API suffices.
+- "Deep" means the **full API surface** — sessions, streaming, catalog, permissions, questions, MCP, steering, interruption, mid-session model switch where the API supports it. Appendix A maps that entire surface, group by group, against the phases of §11. It does **not** mean embedding or forking opencode internals. The official GUI/TUI are themselves pure API clients of this service (`packages/cli/src/commands/handlers/run.ts` resolves a server connection before doing anything else), so parity with them is both the ceiling and the proof that the API suffices.
 - The integration follows the repo extension policy: **new files plus one registration point** behind the upstream `RuntimeAgentDef` contract, namespaced config (`odbun.*` / `ODBUN_*`), blast radius contained. The anti-pattern is Vela (one integration rooted in 122 daemon source files, parked as V1); P6 is one client module, one runner, and thin wiring (§3).
 - Every capability ships **dual-track** (repo `AGENTS.md`): a web UI surface and an `od` CLI surface over the same `/api/*` endpoints.
 - The CLI-spawn opencode path (the current def, P1–P4) retires **only** after the service-client path passes the acceptance criteria in §9.4.
@@ -346,3 +346,81 @@ Each item below was **not** verified from sources during design; each names the 
 ## 13. Registry note
 
 `port/port-items.json` gains the entry `{id: "P6", file: "P6-DESIGN.md", status: "designed", summary: …}` and `"P6"` is appended to the `order` array. "Designed" is the honest status: the design is complete and evidence-grounded; no implementation has landed. P1–P4 remain `landed` — they describe the live CLI transport — and are re-marked as superseded by P6 only when S6 (§11) actually retires that transport.
+
+---
+
+## Appendix A — Full-leverage map
+
+### A.1 Principle: one daemon, client-only leverage
+
+P6's ceiling is the service's HTTP surface itself. odbun adds **no second daemon**: it is a client of the user's one opencode service, so anything that service exposes over HTTP is available to odbun without new processes, new state stores, or a fork. The boundary of the integration is exactly where the API stops — plus four surfaces that are not client surface for odbun at all (service lifecycle management, binary upgrade/uninstall, interactive OAuth login flows, TUI rendering and server-side plugin internals; see the out-of-scope rows in A.2).
+
+This appendix inventories the **entire** v2.2.5 protocol surface — all 36 group files in `packages/protocol/src/groups/` of the pinned reference tree — and classifies each group into exactly one bucket:
+
+- **In S1–S6 scope** — already covered by a phase of §11 (named in the row).
+- **Later phase (S7+ candidate)** — reachable via the API and valuable, deliberately not in S1–S6.
+- **Experimental — wrap with care** — endpoints under `/api/experimental/` or otherwise experimental per the upstream convention (experimental endpoints may change without compatibility guarantees); usable only behind the §3 client module with wire-contract CI coverage (§10). A group that is experimental *and* a later-phase candidate is classified here, with the candidacy noted in its row.
+- **Out of scope by design** — not client surface for odbun: service lifecycle management (start/stop/restart — locked decision, never touched), binary upgrade/uninstall, interactive OAuth login flows (user-driven via CLI/browser; odbun only surfaces status), TUI rendering (odbun has its own UI), and server-side plugin execution internals (plugins are the user's config domain).
+
+Counts: 13 groups in S1–S6 scope, 13 later-phase candidates, 9 experimental, 1 out of scope by design.
+
+### A.2 The map
+
+Session first (it is the integration's core), then the remaining groups alphabetically. Endpoint names are operation ids from the group files, not full paths, except where the path itself carries the classification (experimental prefixes).
+
+| Group | Key endpoints | Bucket | odbun use |
+|---|---|---|---|
+| `session.ts` | list, create, get, remove, fork, switchAgent, switchModel, update (PATCH), move, prompt, command, synthetic, shell, compact, revert.stage / revert.clear / revert.commit, context, diff, inbox.list / inbox.cancel / inbox.update, generate, interrupt, background, active, environment (PUT), view, form.list / create / get / reply / cancel under `/api/session/:id/form`; experimental: stats, import, export, skill, wait, log | In S1–S6 scope (S2; forms S4) | The runner's whole dispatch surface — §5's run-semantics mapping lives in this group |
+| `agent.ts` | list, get | In S1–S6 scope (S3) | Agent catalog for the picker/switcher, paired with session.switchAgent |
+| `artifact.ts` | providers, list, create, get, update, delete, view — all under `/api/experimental/artifacts` | Experimental — wrap with care | None planned: service-managed artifact records with pluggable providers — a different concept from odbun's file artifacts; inventoried for completeness |
+| `command.ts` | list | In S1–S6 scope (S2) | Enumerates the slash commands the runner can execute via session.command |
+| `config.ts` | get, shells; update is PATCH `/api/experimental/config` | In S1–S6 scope (S5) | Effective-config surfacing (§7.2 option C); the experimental update path is not used |
+| `credential.ts` | list, create, update, activate, remove | Later phase (S7+ candidate) | Could surface stored provider-credential state; writes stay the user's domain per §1's non-goal (no odbun-side replication of opencode auth) |
+| `debug.ts` | heapDump, location, location.evict | Later phase (S7+ candidate) | Support diagnostics for the service process; heap-dump is intrusive and would only ever run as an explicit user action |
+| `event.ts` | subscribe (`GET /api/event`, SSE) | In S1–S6 scope (S1/S2) | The single server-wide stream the demux (§3.4) consumes |
+| `experimental.ts` | — (no endpoints of its own) | Experimental — wrap with care | None: a composition module that assembles the artifact, media, persistent-pty, and schedule groups under `server.experimental`; those groups carry their own rows |
+| `form.ts` | list (global) | In S1–S6 scope (S4) | Cross-session form listing; the per-session form round-trips live in the session group (§6.2) |
+| `fs.ts` | read, list, find; write and watch / unwatch are experimental | Later phase (S7+ candidate) | Service-side file read/find for a session location; the daemon's local filesystem covers today's needs |
+| `generate.ts` | text, textLegacy, image, decisions — all under `/api/experimental/generate` | Experimental — wrap with care | Session-less one-shot generation, if odbun ever needs it; no current phase depends on it |
+| `integration.ts` | list, get; connect.key, connect.external, connect.command (+ status / cancel), oauth.connect (+ status / cancel); wellknown.add is experimental | Later phase (S7+ candidate) | Provider-connection status surfacing; the OAuth/command connect flows themselves stay user-driven (A.1 boundary) |
+| `location.ts` | get, reload | In S1–S6 scope (S5) | Location resolution and reload plumbing under the per-location MCP bridge (§7.3) |
+| `mcp.ts` | list, resource.catalog; add (PUT), remove, connect, disconnect are under `/api/experimental/mcp` | In S1–S6 scope (S5) | The §7.3 bridge: odbun's servers registered per location via mcp.add and verified via mcp.list; the experimental paths are wrapped per the A.3 rule |
+| `media.ts` | get (by content hash) — `/api/experimental/media/:hash` | Experimental — wrap with care | Fetching media a session references by hash, if the chat surface ever needs it |
+| `message.ts` | session.messages (the group's single endpoint; single-message get lives in the session group) | In S1–S6 scope (S2) | Message reads behind settle and usage synthesis (§5) |
+| `migration.ts` | v1.status — `/api/experimental/migration/v1` | Experimental — wrap with care | Informational only: whether the service's v1→v2 data migration has run; no odbun behaviour depends on it |
+| `model.ts` | list, default | In S1–S6 scope (S3) | The live catalog behind the picker (§8) |
+| `permission.ts` | request.list, saved.list / saved.update / saved.remove, session.permission.create / list / get / reply | In S1–S6 scope (S4) | The §6.1 bridge, including saved-permission mapping |
+| `persistent-pty.ts` | per-session terminal read / list / create; pty get / update / snapshot / remove, connect-token, handoff, shutdown — all under `/api/experimental` | Experimental — wrap with care (S7+ candidate) | A terminal attached to a session, with snapshot and cross-client handoff |
+| `plugin.ts` | list, gui, check, update | Out of scope by design | None: plugins are declared in the user's config and execute inside the service; odbun neither manages nor depends on that layer |
+| `project.ts` | list, update | Later phase (S7+ candidate) | The project registry behind a cross-project session panel |
+| `provider.ts` | list, get | In S1–S6 scope (S3) | The provider side of the live catalog (§8) |
+| `pty.ts` | list, create, get, update, remove, connectToken | Later phase (S7+ candidate) | The service's standalone PTY registry — distinct from the experimental per-session persistent-pty — for a future terminal surface |
+| `reference.ts` | list | Later phase (S7+ candidate) | Surfacing the user's config-declared external references (directories / git repos) per location |
+| `rpc.ts` | call (`POST /api/rpc/:rpcID/:method`) | Later phase (S7+ candidate) | None planned: a generic RPC tunnel; the named groups cover odbun's surface, so this remains an escape hatch only |
+| `schedule.ts` | create, list, get, pause, resume, delete — all under `/api/experimental/schedule` | Experimental — wrap with care (S7+ candidate) | Schedules that live inside opencode itself — a convergence question against odbun's own routines, not an S1–S6 one |
+| `server.ts` | info, pair | In S1–S6 scope (S1) | server.info is the §4 health/version probe; pair (official-app client pairing) is not used |
+| `shell.ts` | list, create, get, output, remove | Later phase (S7+ candidate) | Service-managed shell sessions, separate from one-shot session.shell execution |
+| `skill.ts` | list | Later phase (S7+ candidate) | Enumerating the user's skills; invocation (session.skill) is experimental and would inherit the A.3 wrap rule |
+| `usage.ts` | limits — `/api/experimental/usage/limits` | Experimental — wrap with care (S7+ candidate) | Usage-limits display; run usage accounting itself is synthesized from messages in S2 (§5) |
+| `vcs.ts` | init, get, base, status, branch.list, diff | Later phase (S7+ candidate) | Project-level git state for a session panel; per-session diff already lives in the session group |
+| `voice.ts` | models, session — all under `/api/experimental/voice` | Experimental — wrap with care | Live voice sessions; far outside odbun's design surface, inventoried for completeness |
+| `websearch.ts` | providers, query | Later phase (S7+ candidate) | Delegating a search to the user's configured websearch provider instead of odbun-side tooling |
+| `worktree.ts` | list, create, remove, refresh | Later phase (S7+ candidate) | Service-managed git worktrees per project |
+
+### A.3 Depth summary
+
+"Full leverage" means odbun can grow into a **superset client** of the user's service without ever adding a daemon: a session panel across projects (project + session groups), session power tools (fork, compact, revert, move, background), a per-session terminal (persistent-pty), slash commands and one-shot shell execution (session.command / session.shell), the user's own agents, skills, and commands surfaced from their config (agent / skill / command groups), VCS and diff views (vcs + session.diff), and usage surfaces (message synthesis in S2; usage.limits when it stabilises). Every one of those is a client call against the one running service.
+
+Two rules keep that depth safe:
+
+- **Experimental — wrap with care.** Nothing outside the §3 client module may call an experimental endpoint, and no UI may depend on one until the §10 wire-contract CI job covers it. Experimental endpoints may change without compatibility guarantees; the wrap localises the breakage to one module and the CI job is what notices.
+- **Build the S1 client generically, per protocol group.** The official SDK is generated from these same protocol groups; mirroring that shape — one thin, typed wrapper per group instead of per-feature plumbing — makes each later group a configuration choice (register the wrapper, add the surface) rather than new transport code. Depth then compounds instead of accumulating.
+
+### A.4 Cross-reference: plausible later phases
+
+The S7+ candidates named in A.2 group naturally into four future phases (names and membership only — no design here):
+
+- **Session power tools** — project, vcs, worktree, fs, reference.
+- **Terminal & shell** — pty, shell, persistent-pty (experimental).
+- **Ecosystem management** — integration, credential, skill, websearch, rpc, debug.
+- **Service extras** — schedule (experimental), usage (experimental).
