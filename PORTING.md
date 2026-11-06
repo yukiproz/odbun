@@ -82,6 +82,14 @@ odbun carries its **own version line**; the base version is recorded
 alongside it (e.g. "odbun 0.1.0 · base open-design v0.27.0"), never
 implied to track upstream numbering.
 
+**CI gate (2026-11-06).** CI gates on Bun only: the Bun suite is
+the single gate in `.github/workflows/odbun-ci.yml`. The Node suite
+survives as a non-gating upstream-triage baseline — it runs only
+on `update/**` pushes, PRs from `update/*` branches, and manual
+dispatch — so a future upstream update (policy above) can be
+triaged against upstream's native runtime. Decision record and
+verification: `port/TEST-SUITES.md` §11.
+
 ## Extensions — custom providers & extra mechanisms (planned, Hadi, 2026-11-05)
 
 Custom providers and other non-default mechanisms are expected in
