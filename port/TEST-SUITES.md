@@ -698,3 +698,60 @@ still lose buffered tail records — that is inherent to the
 asynchronous journal design (the write callback remains the
 durability boundary, as the replay path documents) and closing it
 would require synchronous journal writes, which was not attempted.
+
+## 10. Web `z.enum` wall — RESOLVED (2026-11-06)
+
+**History:** the web suite under Bun failed at collection in every file
+(1,405/1,405, 0 tests) with `TypeError: undefined is not an object
+(evaluating 'z.enum')` — CI runs 42179152723 and 42180766959. The daemon
+side had already been unblocked by §7.4 (`ssr.noExternal` in the daemon
+config); the web config had no equivalent.
+
+**Mechanism (proven, stream `port/fix-zod-bun`):** Vitest's
+external-module interop rebinds a non-`.mjs` module with a `default`
+export to that default when `"__esModule" in mod.default` holds. That
+probe is false for a module namespace under Node but true under Bun,
+so on the Bun track zod's namespace (109 keys) was replaced by its
+default export — the v3/external namespace (107 keys) — which lacks
+the explicit `z` export. Every web suite importing
+`@open-design/contracts` then died at collection on `z.enum`. Not a
+zod bug and not a port regression: zod 3.25.76 is correct; the
+interop probe is what differs between runtimes.
+
+**Fix (config only, `apps/web/vitest.config.ts`):**
+`server.deps.inline: ['zod']` — zod is transformed by Vite as ESM
+instead of externalized, so the `z` binding survives on both
+runtimes. (Vitest 4's `server.deps.inline` is the successor knob to
+`ssr.noExternal` used in §7.4; same effect, web-side.) Commit
+`d3b1b1e`, merged as `a2167eb`. No test changed; no behaviour change
+under Node.
+
+**Verification — CI run 42187225324 (tree `a2167eb`), overall
+conclusion success:**
+
+- Daemon step (Bun): **975 files passed / 5 skipped (980);
+  12,727 tests passed / 24 skipped (12,751)** — green.
+- Web step (Bun): **1,403 files passed / 2 failed (1,405);
+  15,622 tests passed / 2 failed / 1 expected fail / 11 skipped
+  (15,636)** — from 1,405 files failing at collection to 2
+  individual test failures.
+- Node gate, port layer, daemon smoke, typecheck: all green.
+
+**Remaining red on the Bun track (2 tests, both new, neither is
+the zod wall):**
+
+1. `tests/components/cms-repro-a-lifecycle.test.ts` (OPEND-3363/3374/
+   3376/3377/3378, case 3377) — `TypeError: undefined is not an
+   object (evaluating 'stdout._handle.fd')`, surfacing from
+   TypeScript 7.0.2's SyncRpcChannel. Bun incompatibility in the
+   TS 7 native channel, not a port regression on its face.
+2. `tests/components/FileViewer.deck-preview-blank-on-return.test.tsx`
+   — `TestingLibraryElementError: Unable to find an element by:
+   [data-testid="artifact-preview-frame"]`. Deck-preview
+   iframe/render timing under Bun; note §3.3's Node-side FileViewer
+   failures were load flakes — whether this one is a flake or a
+   Bun-specific timing difference is **unverified**.
+
+**Exit condition (unchanged):** the dual-track exit condition —
+Bun fully green → Node track retires — is **not yet met**. The two
+failures above are the only remaining blockers.
