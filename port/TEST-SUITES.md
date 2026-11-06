@@ -621,35 +621,80 @@ layer `bun test` 11/11. Manifest JSON valid, sorted, 73 unique
 entries; `port-items.json` valid with V1 appended. Post-merge
 full-suite Actions totals are the coordinator's step.
 
-## 9. Known issue: usage-recovery journal-tail race (parked 2026-11-06)
+## 9. Usage-recovery journal-tail race — RESOLVED (2026-11-06)
 
-**Decision (Hadi, 2026-11-06):** parked as a known issue, not fixed and
-not masked. The suite `tests/observability/usage-recovery.test.ts`
-stays collected on both tracks; its intermittent failures are
-expected noise until the unpark condition below fires.
+**History (as parked earlier on 2026-11-06):** the suite
+`tests/observability/usage-recovery.test.ts` failed intermittently on
+the Bun track. After an in-process server restart, the events journal
+(`events.jsonl`) was missing its trailing 1–4 records at the moment
+the test read it (the normal, duplicate, and late native-usage
+semantics cases failed most often). The records were late, not lost —
+a 1.5 s delay before the read cured it 5/5 — and the failure was
+pre-existing, not a port regression: identical code flipped
+5/5 → 3/5 → 2/5 locally (stream `port/parity-bun-tail`) and failed on
+the pristine base in CI runs 42098809569 (4 tests) and 42116642811
+(3 tests). Suspects cleared at the time: Bun `fs.WriteStream`
+write-callback and `end(cb)` ordering, and the stdout/stderr pipe
+primitive behind the `cli.ts` flush fix. It was parked unfixed and
+unmasked because no mechanism was proven; the unpark conditions were
+usage accounting becoming load-bearing, or new evidence pinning the
+mechanism in `runs.ts`.
 
-- **Symptom:** after an in-process server restart, the events journal
-  (`events.jsonl`) is missing its trailing 1–4 records at the moment
-  the test reads it. The three failing cases are the normal,
-  duplicate, and late native-usage semantics tests.
-- **Late, not lost (proven):** a 1.5 s delay before the read cures it
-  5/5. Durability of the journal itself is not in question; this is
-  an emit-vs-read timing race around restart.
-- **Intermittence record:** identical code flips 5/5 → 3/5 → 2/5
-  locally (stream `port/parity-bun-tail`); failed on the pristine
-  base in CI run 42098809569 (4 tests) and again in the final parity
-  run 42116642811 (3 tests) — pre-existing, not a port regression.
-- **Cleared suspects:** Bun `fs.WriteStream` write-callback and
-  `end(cb)` ordering are correct for file streams; the broken
-  stdout/stderr pipe primitive (see the `cli.ts` flush fix) is a
-  different mechanism.
-- **Suspect area (unproven):** the recorded-replay emit scheduling
-  vs `finish()` / `pendingTerminalFinish` emit gating in
-  `src/runtimes/runs.ts`. No production change was shipped because
-  no mechanism was proven; no test-side sleep was added because it
-  would mask a genuine durability question.
-- **Impact:** usage-accounting accuracy in the moments right after a
-  restart. No effect on projects, chat, runs, or any user data.
-- **Unpark condition:** chase when usage accounting becomes
-  load-bearing (cost tracking relied upon, multi-user use), or when
-  new evidence pins the mechanism in `runs.ts`.
+**Unpark (Hadi, 2026-11-06):** direct order to chase the root cause
+until the suite is reliably green under Bun (stream
+`port/fix-usage-recovery-race`). Test-side masking stayed prohibited.
+
+**Mechanism (proven):** journal writes are fire-and-forget.
+`emit()` in `src/runtimes/runs.ts` hands each record to a per-run
+`fs.WriteStream` with `stream.write(...)` and moves on;
+`commitFinish()` closes the stream via `end(cb)` and stores that
+flush as `run.eventsLogFinalFlush` — but nothing on the finish,
+status, or shutdown path ever awaited it (only the SSE journal-replay
+path did). Instrumented probes pin the tail's location at the failing
+read: at the moment the live SSE stream completed, the journal file
+was already 3–9 records behind the in-memory stream — including the
+terminal `end` record — while the run was already reported
+`succeeded`; write-callback tracing showed those records still
+sitting in the stream's userland buffer (`writableLength` > 0) with
+callbacks draining in bursts tens of milliseconds after `end()` was
+called. So the tail was **emitted but not yet written** when the
+restart boundary was crossed. Under Node the same buffer drains
+within the time consumers spend on subsequent requests, which hid
+the race; under Bun the drain lags measurably (1–2 records still
+missing at the post-shutdown read, worst case outlasted only by the
+1.5 s delay). The old suspect — replay emit scheduling vs
+`pendingTerminalFinish` gating — was not the mechanism: gated emits
+never reach the journal *or* the live stream, and the missing
+records were all present in the live stream.
+
+**Fix (production only, `src/runtimes/runs.ts`):** `shutdownActive`
+now ends with a journal durability barrier — after active runs are
+terminated it awaits every run's `eventsLogFinalFlush` before
+returning. Shutdown is the restart boundary and recovery replays
+these journals verbatim, so the boundary is no longer crossed with a
+journal flush outstanding. No test changed; no behaviour change
+under Node, where the flush settles promptly.
+
+**Verification (2026-11-06):**
+
+- Baseline, Bun track, 10 runs of the focused suite: normal 4/10,
+  duplicate 5/10, late 5/10, missing-last 9/10, foreign-turn 8/10;
+  every failure missed exactly 1–2 tail records at the post-shutdown
+  journal read.
+- After the fix: **10/10 consecutive Bun runs green — 50/50 cases.**
+- Node track: the suite itself sits in
+  `tests/node-harness-exclusions.json` (it boots the Bun-only
+  daemon), so it never ran on the Node gate, before or after. The
+  Node-runnable suites covering the touched module
+  (`runtimes/runs`, `runtimes/runs-durable-replay`,
+  `cancel-owned-runs`) pass 100/100 under the Node harness.
+- Collateral: `tests/runtimes/opencode-service` 63/63 on both
+  tracks; `bun check` clean on both daemon tsconfig programs
+  (787 + 1,860 files).
+
+**Scope note:** the barrier closes the graceful shutdown/restart
+boundary. A hard process kill inside the finish-to-drain window can
+still lose buffered tail records — that is inherent to the
+asynchronous journal design (the write callback remains the
+durability boundary, as the replay path documents) and closing it
+would require synchronous journal writes, which was not attempted.
