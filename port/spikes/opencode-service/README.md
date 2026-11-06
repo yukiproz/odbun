@@ -208,7 +208,19 @@ install on the dev VM), 2026-11-06:
   the free tier answered 429 "Free usage limit reached" before any
   assistant text was produced. That is what motivated the
   custom-provider (Baseten) mode above.
-- First Baseten (custom-provider) result: **pending** — the workflow
-  has not been dispatched in Baseten mode yet at the time of
-  writing. The coordinator dispatches it and records the
-  classification here.
+- First Baseten (custom-provider) result — Actions run
+  [42171815258](https://github.com/yukiproz/odbun/actions/runs/42171815258),
+  2026-11-06, workflow conclusion `success`, classification
+  **`RUN_OK`**: all seven stages passed on a clean runner. Discovery
+  found opencode 2.2.5 (pid 2247, `http://127.0.0.1:49374`); health
+  `ready`; the catalog carried 3 providers (`opencode`, `baseten`,
+  `baseten-muse`) and 23 models, with the target model
+  `meta-models/muse-spark-open-1026` present under `baseten-muse`
+  exposing exactly the configured variants `low, medium, high,
+  xhigh`. Session `ses_e508d64e8ffeiYokLvoxDyg2QK` was created with
+  variant `low`; the run settled on `session.execution.succeeded`
+  in 1,722 ms with assistant text `SPIKE_OK`; re-read showed outcome
+  `succeeded` with 3 messages; cleanup deleted the session (204) and
+  the job log verified `no opencode processes remain`. This proves
+  the full service-client loop with a *custom* provider and a real
+  model — the P6 integration surface — not just the free tier.
