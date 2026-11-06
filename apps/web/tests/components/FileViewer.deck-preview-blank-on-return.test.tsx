@@ -225,6 +225,14 @@ describe('deck preview blank after leaving and returning to the project', () => 
       </Wrap>,
     );
     await waitFor(() => expect(filesRequests).toHaveLength(1));
+    // The preview frame mounts only once the deck source load + parse
+    // pipeline lands — that latency is runtime-dependent (under Bun/jsdom
+    // the frame can still be absent long after the files read has been
+    // observed), so await the frame itself, the same way the cases below
+    // do, instead of assuming it already exists at this point.
+    await waitFor(() => {
+      expect(srcDocFrame().getAttribute('data-od-render-mode')).toBe('srcdoc');
+    });
     expect(srcDocFrame().getAttribute('srcdoc') ?? '').toBe('');
   });
   it('re-issues the project-files read on remount instead of rejoining a stalled shared read, releasing the preview hold', async () => {
