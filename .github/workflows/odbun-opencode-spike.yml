@@ -8,10 +8,22 @@
 # service from its registration file and speaks only to its HTTP API,
 # the same way the official v2 client does.
 #
-# The run stage uses a free model from the built-in `opencode` provider
-# and classifies the outcome (RUN_OK / AUTH_REQUIRED / RUN_ERROR) as
-# data: a red job means the wire contract itself broke, not that the
-# free tier demanded auth. Details: port/spikes/opencode-service/README.md.
+# Custom-provider mode (Baseten): before the service starts, the
+# workflow installs port/spikes/opencode-service/opencode.json as the
+# global opencode config (~/.config/opencode/opencode.json). That file
+# declares Hadi's `baseten-muse` provider verbatim from his own
+# opencode.jsonc — it names the credential only by env var
+# (BASETEN_API_KEY) and contains no secret. The secret itself is passed
+# as env to the "Start the opencode user service" step ONLY, so the
+# daemon process inherits it for provider resolution (mirroring Hadi's
+# local export-then-restart usage); no other step sees it and it is
+# never echoed. The spike client is then pointed at the custom model
+# via SPIKE_PROVIDER / SPIKE_MODEL / SPIKE_VARIANT (variant `low` —
+# cheapest/fastest wire proof; Baseten's own default is xhigh).
+#
+# The run stage classifies the outcome (RUN_OK / AUTH_REQUIRED /
+# RUN_ERROR) as data: a red job means the wire contract itself broke,
+# not that the run failed. Details: port/spikes/opencode-service/README.md.
 name: odbun-opencode-spike
 
 on:
@@ -56,9 +68,28 @@ jobs:
       - name: opencode version (evidence)
         run: opencode --version
 
-      - name: Start the opencode user service
+      # Custom-provider config: install Hadi's baseten-muse provider
+      # definition as the global opencode config BEFORE the service
+      # starts, so the daemon loads it at boot. The file declares the
+      # credential by env NAME only (BASETEN_API_KEY) — it contains no
+      # secret, so catting it into the log is safe evidence.
+      - name: Install custom provider config (baseten-muse)
         run: |
           set -euo pipefail
+          mkdir -p "$HOME/.config/opencode"
+          cp port/spikes/opencode-service/opencode.json "$HOME/.config/opencode/opencode.json"
+          echo "installed global opencode config:"
+          cat "$HOME/.config/opencode/opencode.json"
+
+      - name: Start the opencode user service
+        env:
+          BASETEN_API_KEY: ${{ secrets.BASETEN_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASETEN_API_KEY:-}" ]; then
+            echo "::error::BASETEN_API_KEY secret is not set — add it in repo Settings > Secrets and variables > Actions before dispatching this spike."
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/spike-artifacts"
           opencode service start | tee "$RUNNER_TEMP/spike-artifacts/service-start.log"
 
@@ -108,6 +139,10 @@ jobs:
           exit 1
 
       - name: Run the spike client
+        env:
+          SPIKE_PROVIDER: baseten-muse
+          SPIKE_MODEL: meta-models/muse-spark-open-1026
+          SPIKE_VARIANT: low
         run: bun port/spikes/opencode-service/spike-client.ts
 
       - name: Show the spike report
