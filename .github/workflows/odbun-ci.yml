@@ -8,21 +8,22 @@
 #                  daemon-tests project (fast gate; emits nothing).
 #   daemon-smoke — same install + build, then boot the daemon under
 #                  Bun and require /api/health and /api/projects 200.
-#   test-suites  — the upstream Vitest suites (daemon + web) executed
-#                  on the runner's PREINSTALLED Node (never installed
-#                  by this workflow): the gating track. Dual-track
-#                  rationale + exit condition in the job comment and
-#                  in port/TEST-SUITES.md.
-#   test-suites-bun — EXPERIMENTAL (continue-on-error): the daemon
-#                  and web suites on the Bun runtime — the Bun/Vitest
-#                  compatibility tracker that replaces the Node track
-#                  once fully green.
+#   test-suites  — UPDATE BASELINE: the upstream Vitest suites
+#                  (daemon + web) executed on the runner's
+#                  PREINSTALLED Node (never installed by this
+#                  workflow). Runs only for upstream-update work
+#                  (pushes to update/** branches, PRs from them, or
+#                  manual dispatch) — see the job comment.
+#   test-suites-bun — THE GATE: the daemon and web suites on the
+#                  Bun runtime. Fully green since CI run
+#                  42194971430; a failure here fails the run. See
+#                  the job comment and port/TEST-SUITES.md.
 # Recipes and evidence: port/BUILD-PROBE.md, port/SMOKE-MAIN.md.
 name: odbun-ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'update/**']
   pull_request:
   workflow_dispatch:
 
@@ -344,18 +345,35 @@ jobs:
           trap - EXIT
 
 
-  # DUAL-TRACK TEST SUITES (Hadi decision, 2026-11-06 — "yang penting
-  # tes bisa jalan"). Exception, stated plainly: in this job ONLY,
-  # Node is the disposable test-harness runtime — ubuntu-latest
-  # preinstalls it; this workflow never installs Node (no setup-node).
-  # The suites were written for Node+Vitest, so a failure here is the
-  # cleanest signal about OUR PORT, free of runtime-interop noise.
-  # Product runtime, install, build and typecheck remain Bun-only.
-  # Exit condition: when the Bun track (test-suites-bun below) is
-  # fully green, this Node track retires and Bun becomes the gate.
+  # UPDATE-BASELINE TEST SUITES (Hadi decision, 2026-11-06, after
+  # CI run 42194971430 met the dual-track exit condition: the Bun
+  # track below is fully green and is now THE GATE). This Node track
+  # no longer gates anything; it survives as the upstream-triage
+  # baseline. Upstream's devs write and test this code on Node, so
+  # when an update/* branch merges upstream changes (PORTING.md's
+  # update flow), running the same tree on Node is the clean way to
+  # tell a port regression apart from an upstream change and from
+  # Bun/Vitest interop noise. That is why the job below runs ONLY
+  # for upstream-update work: pushes to update/** branches, pull
+  # requests whose head branch is under update/, and manual
+  # workflow_dispatch runs (the escape hatch for an ad-hoc baseline).
+  # On ordinary main pushes and ordinary PRs it is skipped, and a
+  # skipped job does not fail the run.
+  # Exception, stated plainly: in this job ONLY, Node is the
+  # disposable test-harness runtime — ubuntu-latest preinstalls it;
+  # this workflow never installs Node (no setup-node). Product
+  # runtime, install, build and typecheck remain Bun-only.
   # Results + triage: port/TEST-SUITES.md.
   test-suites:
-    name: test suites (Vitest on preinstalled Node — gate)
+    name: test suites (Vitest on preinstalled Node — update baseline)
+    # github.ref for pull_request is refs/pull/<n>/merge, so PRs are
+    # matched on github.head_ref (the source branch name) instead.
+    # github.head_ref is empty outside pull_request, and
+    # startsWith('', ...) is false, so the push cases are unaffected.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/heads/update/') ||
+      startsWith(github.head_ref, 'update/')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -485,19 +503,22 @@ jobs:
         working-directory: apps/web
         run: ./node_modules/.bin/vitest run -c vitest.config.ts --maxWorkers=2
 
-  # EXPERIMENTAL Bun track (companion to the gate above): the daemon
-  # and web suites executed on the Bun runtime itself (bunx vitest). This is
-  # the Bun/Vitest compatibility tracker — expected baseline and
-  # failure triage in port/TEST-SUITES.md. continue-on-error until
-  # it is fully green; then it becomes the gate and the Node track
-  # retires (see the dual-track note above).
+  # THE GATE (Hadi decision, 2026-11-06): the daemon and web suites
+  # executed on the Bun runtime itself (bunx vitest). This job was
+  # the experimental Bun/Vitest compatibility tracker until CI run
+  # 42194971430 proved it fully green — daemon 975 files / 12,727
+  # tests and web 1,405 files / 15,623 tests, 0 failed — meeting
+  # the dual-track exit condition. It is now the single gating
+  # suite track: no continue-on-error, so a failure here fails the
+  # run. The Node track above survives only as the update baseline
+  # (see its comment). Expected posture + failure triage:
+  # port/TEST-SUITES.md.
   test-suites-bun:
-    name: test suites (Vitest on Bun runtime — experimental)
+    name: test suites (Vitest on Bun runtime — gate)
     runs-on: ubuntu-latest
-    # 60 (was 45 for the daemon suite alone): mirrors the Node gate,
-    # which budgets 60 for the same daemon+web pair.
+    # 60 (was 45 for the daemon suite alone): mirrors the Node
+    # baseline job, which budgets 60 for the same daemon+web pair.
     timeout-minutes: 60
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
