@@ -25,6 +25,12 @@ import { ProductionCampaignHover } from "../../src/components/ProductionCampaign
 import * as host from "../../src/components/touchpoint-component";
 import { I18nProvider, type Locale } from "../../src/i18n";
 
+// True when the test process itself runs on the Bun runtime. The
+// daemon tests keep this in tests/helpers/runtime.ts as
+// `typeof Bun !== 'undefined'`; apps/web has no Bun type definitions
+// in its tsconfig type roots, so the global is read off globalThis.
+const isBun: boolean = (globalThis as { Bun?: unknown }).Bun !== undefined;
+
 const T0 = Date.parse("2030-01-01T00:00:00Z");
 const at = (ms: number) => new Date(T0 + ms).toISOString();
 const placements = ["opend.home.campaign-modal", "opend.home.account-badge", "opend.home.hover-entry", "opend.home.hover-layer"];
@@ -82,7 +88,20 @@ describe("OPEND-3363/3374/3376/3377/3378 acceptance gaps", () => {
     await step(999); expect(result.current.current).toBe(value);
     await step(1); expect(result.current.current).toBeNull();
   });
-  it("3377 TypeScript rejects all three authorization timing reads from the real lease helper", () => {
+  // Bun-runtime guard (skip on Bun, runs on the Node harness): the
+  // TS7 sync API's SyncRpcChannel spawns its native server via
+  // node:child_process and reads the pipe fds off the child stdio
+  // streams' libuv handles (`child.stdout._handle.fd`). Node backs
+  // stdio pipes with handle-carrying Sockets; Bun 1.4.4's
+  // child_process compat returns a generic Readable / fs.WriteStream
+  // with `_handle` undefined and no public fd, so `new API` throws
+  // `TypeError: undefined is not an object (evaluating
+  // 'stdout._handle.fd')` before any checking happens. The API
+  // exposes no fd/stream injection point, so the case cannot run
+  // under Bun; it executes on the Node track. Same guard pattern as
+  // the daemon's Bun-only tests, mirrored. See port/TEST-SUITES.md
+  // §7.2 for the guard precedent.
+  it.skipIf(isBun)("3377 TypeScript rejects all three authorization timing reads from the real lease helper", () => {
     const file = path.resolve("tests/components/cms-repro-timing-probe.ts");
     const source = `import { touchpointLeaseValue } from '../../src/components/touchpoint-lifecycle';
       const retained = touchpointLeaseValue({ activityId: 'a', serverTime: 's', endsAt: 'e', authorizationExpiresAt: 'x' });
