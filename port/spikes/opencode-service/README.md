@@ -174,15 +174,21 @@ registration file).
 
 ## Pinned binary
 
-From the `anomalyco/opencode` **v2.2.5** GitHub release:
+From the `anomalyco/opencode` **v2.2.6** GitHub release:
 
 - Asset: `opencode-linux-x64.tar.gz` (Linux x86-64, glibc — the
-  `ubuntu-latest` runner shape), 119,196,162 bytes.
-- URL: https://github.com/anomalyco/opencode/releases/download/v2.2.5/opencode-linux-x64.tar.gz
-- SHA-256: `09f44302c10fd036912f59c81fd1aef5df45dd06f649197f9dfc9bbe2a79614e`
+  `ubuntu-latest` runner shape), 121,793,402 bytes.
+- URL: https://github.com/anomalyco/opencode/releases/download/v2.2.6/opencode-linux-x64.tar.gz
+- SHA-256: `08bb21d6326ce740d91cce7ebe88a6536933f6e1e30353b91a06b01f25da306c`
   — taken from the release asset digest served by the GitHub API and
   cross-checked against the `SHA256SUMS` file published in the same
-  release (identical value).
+  release and the downloaded tarball itself (all three identical).
+
+**Pin status:** the verified runs recorded under Results below were
+against v2.2.5. The pin moved to v2.2.6 on 2026-11-07 at Hadi's
+directive (his machine runs 2.2.6; 2.2.5 is no longer in use there).
+A re-verification run against v2.2.6 is pending — 2.2.6 is **not**
+yet spike-verified.
 
 ## Results
 
