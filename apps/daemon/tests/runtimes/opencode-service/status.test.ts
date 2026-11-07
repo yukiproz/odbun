@@ -13,7 +13,7 @@ import {
 
 const REGISTRATION: OpenCodeServiceRegistration = {
   id: 'svc-1',
-  version: '2.2.5',
+  version: '2.2.6',
   url: 'http://127.0.0.1:49152',
   pid: 4242,
 };
@@ -23,7 +23,7 @@ const found = (registration: OpenCodeServiceRegistration = REGISTRATION): Regist
   registration,
 });
 
-const readyProbe: ProbeResult = { classification: 'ready', httpStatus: 200, serverVersion: '2.2.5' };
+const readyProbe: ProbeResult = { classification: 'ready', httpStatus: 200, serverVersion: '2.2.6' };
 
 describe('resolveStatusSnapshot — §4 status rows', () => {
   it('unregistered: no registration file', () => {
@@ -50,7 +50,7 @@ describe('resolveStatusSnapshot — §4 status rows', () => {
     expect(snapshot.url).toBe(REGISTRATION.url);
     expect(snapshot.pid).toBe(REGISTRATION.pid);
     // Falls back to the registration's claimed version.
-    expect(snapshot.serviceVersion).toBe('2.2.5');
+    expect(snapshot.serviceVersion).toBe('2.2.6');
   });
 
   it('incompatible: probe classification passes through, failing closed', () => {
@@ -65,7 +65,7 @@ describe('resolveStatusSnapshot — §4 status rows', () => {
   it('waiting: probe classification passes through', () => {
     const snapshot = resolveStatusSnapshot({
       read: found(),
-      probe: { classification: 'waiting', httpStatus: 503, serverVersion: '2.2.5' },
+      probe: { classification: 'waiting', httpStatus: 503, serverVersion: '2.2.6' },
     });
     expect(snapshot.state).toBe('waiting');
   });
@@ -73,7 +73,7 @@ describe('resolveStatusSnapshot — §4 status rows', () => {
   it('failed: probe classification passes through', () => {
     const snapshot = resolveStatusSnapshot({
       read: found(),
-      probe: { classification: 'failed', httpStatus: 500, serverVersion: '2.2.5' },
+      probe: { classification: 'failed', httpStatus: 500, serverVersion: '2.2.6' },
     });
     expect(snapshot.state).toBe('failed');
   });
@@ -81,7 +81,7 @@ describe('resolveStatusSnapshot — §4 status rows', () => {
   it('ready: pinned version is not flagged as untested', () => {
     const snapshot = resolveStatusSnapshot({ read: found(), probe: readyProbe });
     expect(snapshot.state).toBe('ready');
-    expect(snapshot.serviceVersion).toBe('2.2.5');
+    expect(snapshot.serviceVersion).toBe('2.2.6');
     expect(snapshot.untestedVersion).toBe(false);
     expect(snapshot.reason).toBeUndefined();
   });
@@ -152,7 +152,7 @@ describe('OpenCodeServiceStatusTracker', () => {
     const tracker = new OpenCodeServiceStatusTracker(source);
     const snapshot = await tracker.refresh();
     expect(snapshot.state).toBe('ready');
-    expect(snapshot.serviceVersion).toBe('2.2.5');
+    expect(snapshot.serviceVersion).toBe('2.2.6');
     expect(probedWith).toEqual([REGISTRATION]);
     expect(tracker.getLastIdentityChanged()).toBe(false);
   });

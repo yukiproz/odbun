@@ -21,12 +21,14 @@ import {
 } from './client.js';
 
 /**
- * The service version line this odbun build is verified against
- * (open-design-v0.27.0 ships opencode v2.2.5; the spike and the
- * wire-contract CI job pin it). A service reporting any other version is
- * NOT a failure — see `untestedVersion` on the snapshot.
+ * The service version line this odbun build is verified against:
+ * v2.2.6, proven by the 2026-11-07 OpenRouter spike (Actions run
+ * 42353229039 — RUN_OK, model `openrouter/free`, wire gate OK; the
+ * spike and the wire-contract CI job pin it). A service reporting any
+ * other version is NOT a failure — see `untestedVersion` on the
+ * snapshot.
  */
-export const PINNED_SERVICE_VERSION = '2.2.5';
+export const PINNED_SERVICE_VERSION = '2.2.6';
 
 export type OpenCodeServiceState =
   | 'unregistered'

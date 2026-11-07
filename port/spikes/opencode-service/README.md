@@ -165,11 +165,10 @@ From the `anomalyco/opencode` **v2.2.6** GitHub release:
   cross-checked against the `SHA256SUMS` file published in the same
   release and the downloaded tarball itself (all three identical).
 
-**Pin status:** the verified runs recorded under Results below were
-against v2.2.5. The pin moved to v2.2.6 on 2026-11-07 at Hadi's
-directive (his machine runs 2.2.6; 2.2.5 is no longer in use there).
-A re-verification run against v2.2.6 is pending — 2.2.6 is **not**
-yet spike-verified.
+**Pin status:** v2.2.6 is now spike-verified — the 2026-11-07 OpenRouter
+run (42353229039) classified `RUN_OK` (see Results below). The pin
+moved to v2.2.6 on 2026-11-07 at Hadi's directive (his machine runs
+2.2.6; 2.2.5 is no longer in use there).
 
 ## Results
 
@@ -211,3 +210,20 @@ install on the dev VM), 2026-11-06:
   the job log verified `no opencode processes remain`. This proves
   the full service-client loop with a *custom* provider and a real
   model — the P6 integration surface — not just the free tier.
+- First OpenRouter result (v2.2.6 verified line) — Actions run
+  [42353229039](https://github.com/yukiproz/odbun/actions/runs/42353229039),
+  2026-11-07, workflow conclusion `success`, classification
+  **`RUN_OK`**: all seven stages passed on a clean runner against the
+  pinned opencode v2.2.6 binary. Discovery found the v2.2.6 service;
+  health `ready`; the catalog carried 2 providers (`opencode`,
+  `openrouter`) and 360 models, with the target model
+  `openrouter/free` (Free Models Router) present under `openrouter`.
+  The session was created without a variant; the run settled on
+  `session.execution.succeeded` (prompt admitted, streamStatus 200)
+  with assistant text `SPIKE_OK`; re-read showed outcome `succeeded`;
+  cleanup passed. This proves the full service-client loop against
+  the v2.2.6 service with a built-in provider and a real model
+  execution — the P6 integration surface on the current verified
+  line. (The spike is OpenRouter-only since 2026-11-07: Baseten was
+  dropped; the earlier v2.2.6 Baseten-mode run 42352025134 passed
+  the wire gate but classified `RUN_ERROR` on the dead event model.)
