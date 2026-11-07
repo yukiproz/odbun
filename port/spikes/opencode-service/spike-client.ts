@@ -34,10 +34,11 @@
 //     provider; run stage is named "run-free-model".
 //   targeted (SPIKE_PROVIDER set, with SPIKE_MODEL / SPIKE_VARIANT) —
 //     run that exact catalog model instead; run stage is named
-//     "run-model". Used for Hadi's custom `baseten-muse` provider
-//     (Muse Spark Open on Baseten): the workflow installs
-//     opencode.json as the global config and passes the credential to
-//     the service process by env name only. This client never reads
+//     "run-model". The workflow targets OpenRouter's free router
+//     model (provider `openrouter`, model `openrouter/free`, no
+//     variant): OpenRouter is a built-in provider, so no config is
+//     installed — the service process inherits OPENROUTER_API_KEY
+//     from its env and resolves it directly. This client never reads
 //     or logs any provider credential.
 
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
