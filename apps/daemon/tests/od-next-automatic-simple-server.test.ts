@@ -2785,8 +2785,7 @@ process.stdin.on('end', () => {
     expect(terminal.endedWithUnfinishedWork).toBe(true);
     expect(terminal.errorCode ?? null).toBeNull();
     expect(terminal.error ?? null).toBeNull();
-    const records = (await readFile(terminal.eventsLogPath, 'utf8')).trim().split('\n')
-      .map((line) => JSON.parse(line));
+    const records = await waitForJournalEnd(terminal.eventsLogPath);
     expect(records.filter((event) => event.event === 'error')).toHaveLength(0);
     expect(records.filter((event) => event.event === 'end')).toHaveLength(1);
     const end = records.find((event) => event.event === 'end')?.data;
@@ -2844,8 +2843,7 @@ process.stdin.on('end', () => {
     expect(terminal.endedWithUnfinishedWork).toBe(false);
     expect(terminal.errorCode ?? null).toBeNull();
     expect(terminal.error ?? null).toBeNull();
-    const records = (await readFile(terminal.eventsLogPath, 'utf8')).trim().split('\n')
-      .map((line) => JSON.parse(line));
+    const records = await waitForJournalEnd(terminal.eventsLogPath);
     expect(records.filter((event) => event.event === 'error')).toHaveLength(0);
     expect(records.filter((event) => event.event === 'end')).toHaveLength(1);
     expect(records.find((event) => event.event === 'end')?.data).toMatchObject({
@@ -3685,6 +3683,42 @@ async function waitForRunTerminal(url: string, runId: string): Promise<RunStatus
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`run ${runId} did not finish: ${JSON.stringify(latest)}`);
+}
+
+// The run journal (events.jsonl) is written through an async fs.WriteStream:
+// commitFinish() reports the run terminal via GET /api/runs/:id before the
+// terminal `end` record has necessarily flushed to disk — under Bun the drain
+// lags the finish by tens to hundreds of milliseconds (port/TEST-SUITES.md §9
+// documents the same mechanism for the usage-recovery race, whose durability
+// barrier only covers the shutdown/restart boundary). A journal read taken
+// immediately after waitForRunTerminal can therefore miss the `end` record
+// even though the daemon always emits it. Wait for the record to land instead
+// of asserting on a possibly-unflushed snapshot; the assertions below still
+// require exactly one `end` record, so a genuinely missing `end` fails here
+// with a timeout instead of passing silently.
+async function waitForJournalEnd(
+  eventsLogPath: string,
+  timeoutMs = 10_000,
+): Promise<Array<{ event: string; data?: any }>> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    try {
+      const records = (await readFile(eventsLogPath, 'utf8')).trim().split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      if (records.some((record) => record.event === 'end')) return records;
+    } catch (error) {
+      // A torn tail line means the flush is still mid-flight; retry until
+      // the deadline rather than failing on a half-written record.
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(
+    `journal ${eventsLogPath} produced no 'end' record within ${timeoutMs}ms`
+    + (lastError ? `: ${lastError instanceof Error ? lastError.message : String(lastError)}` : ''),
+  );
 }
 
 async function waitForTask(taskExecutionId: string, outcome: string) {
