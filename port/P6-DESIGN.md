@@ -160,7 +160,7 @@ Its `decide()` then returns `reuse` / `wait` / `fail` / **`replace`** (on a vers
 | `failed` | probe state `failed` (HTTP 500) | unavailable; surfaced verbatim |
 | `ready` | pid matches, version matches registration | runs may proceed |
 
-**Version-compat rule.** Two different checks must not be conflated. The probe's internal consistency check (service's reported version must equal its registration's version) is adopted as-is — a mismatch means the registration is stale. A difference between the service's version and the version this odbun build was verified against (the pinned v2.2.5 line) is **not** a hard failure: it mirrors the CLI's `--server` attach behaviour, which warns and continues (`server-connection.ts`). odbun surfaces it as an `untested-version` warning on the status snapshot and proceeds; only protocol incompatibility fails closed. The wire-contract CI job (§10) is what keeps "untested" honest over time.
+**Version-compat rule.** Two different checks must not be conflated. The probe's internal consistency check (service's reported version must equal its registration's version) is adopted as-is — a mismatch means the registration is stale. A difference between the service's version and the version this odbun build was verified against (the pinned v2.2.6 line — verified by the 2026-11-07 OpenRouter spike, run 42353229039, RUN_OK on model `openrouter/free`) is **not** a hard failure: it mirrors the CLI's `--server` attach behaviour, which warns and continues (`server-connection.ts`). odbun surfaces it as an `untested-version` warning on the status snapshot and proceeds; only protocol incompatibility fails closed. The wire-contract CI job (§10) is what keeps "untested" honest over time.
 
 ### 4.2 Lifecycle rules
 
