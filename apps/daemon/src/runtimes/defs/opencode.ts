@@ -156,11 +156,104 @@ export function parseOpenCodeModelInfo(payload: unknown): RuntimeModelOption[] |
 }
 
 const OPENCODE_SERVER_PROBE_TIMEOUT_MS = 15_000;
+const OPENCODE_PROBE_FETCH_RETRY_DELAY_MS = 250;
+
+/**
+ * Extract the base URL a one-shot `opencode serve --stdio` announces on
+ * stdout. v2.2.6 prints a JSON line — `{"url":"http://127.0.0.1:35933"}`
+ * — while older builds printed the bare URL, and either form may sit
+ * inside surrounding log text. Returns `null` when nothing usable is
+ * present. The text scan stops at whitespace and at the quote / brace /
+ * bracket characters that terminate a JSON string or object, so the
+ * `"}` closing the v2.2.6 announcement can never leak into the URL
+ * (with the old `[^\s]+` scan it did, producing an invalid port and a
+ * silently failed probe). Candidates are validated with `new URL` and
+ * must be http:/https:.
+ */
+export function extractOpenCodeServerBaseUrl(text: string): string | null {
+  const validate = (candidate: unknown): string | null => {
+    if (typeof candidate !== 'string' || candidate.length === 0) return null;
+    const trimmed = candidate.trim().replace(/\/+$/u, '');
+    try {
+      const url = new URL(trimmed);
+      return url.protocol === 'http:' || url.protocol === 'https:' ? trimmed : null;
+    } catch {
+      return null;
+    }
+  };
+  // JSON announcement line (v2.2.6): {"url":"http://127.0.0.1:35933"}
+  for (const line of text.split('\n')) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine.startsWith('{')) continue;
+    try {
+      const parsed = JSON.parse(trimmedLine) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        const url = validate((parsed as { url?: unknown }).url);
+        if (url) return url;
+      }
+    } catch {
+      // Not (yet) complete JSON — fall through to the text scan.
+    }
+  }
+  // Bare URL, or a URL embedded in other text.
+  const match = text.match(/https?:\/\/[^\s"'}\])]+/u);
+  return validate(match?.[0].replace(/[.,;]+$/u, ''));
+}
+
+/**
+ * Fetch `GET /api/model` from the one-shot server, retrying on
+ * connection-level failures until `deadline`. The v2 server prints its
+ * URL line before its listener accepts connections (measured ~1 s), so
+ * a single immediate fetch loses that race; refused/reset attempts are
+ * retried on a short interval. A completed HTTP response is never
+ * retried: non-2xx is a probe failure. Every failure path resolves
+ * `null` — discovery must never throw into the plain model list.
+ */
+export async function fetchOpenCodeModelInfoWithRetry(args: {
+  baseUrl: string;
+  password: string;
+  deadline: number;
+  fetchImpl?: typeof fetch;
+  retryDelayMs?: number;
+}): Promise<RuntimeModelOption[] | null> {
+  const fetchImpl = args.fetchImpl ?? fetch;
+  const retryDelayMs = args.retryDelayMs ?? OPENCODE_PROBE_FETCH_RETRY_DELAY_MS;
+  const authorization = `Basic ${Buffer.from(`opencode:${args.password}`).toString('base64')}`;
+  for (;;) {
+    const remainingMs = args.deadline - Date.now();
+    if (remainingMs <= 0) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remainingMs);
+    let response: Response;
+    try {
+      response = await fetchImpl(`${args.baseUrl}/api/model`, {
+        headers: { authorization },
+        signal: controller.signal,
+      });
+    } catch {
+      // Connection refused/reset while the listener is still starting,
+      // or the attempt ran into the deadline abort. The deadline check
+      // at the top of the loop decides whether another attempt fits.
+      clearTimeout(timer);
+      if (Date.now() >= args.deadline) return null;
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      continue;
+    }
+    clearTimeout(timer);
+    if (!response.ok) return null;
+    try {
+      return parseOpenCodeModelInfo(await response.json());
+    } catch {
+      return null;
+    }
+  }
+}
 
 /**
  * Boot a one-shot OpenCode v2 server exactly the way the v2 CLI does —
- * `opencode serve --stdio --port 0` with a random `OPENCODE_PASSWORD`,
- * first stdout line is the base URL — and read `GET /api/model` from it.
+ * `opencode serve --stdio --port 0` with a random `OPENCODE_PASSWORD`;
+ * the server announces its base URL on stdout (a JSON line on v2.2.6,
+ * a bare URL on older builds) — and read `GET /api/model` from it.
  * Any failure (spawn error, no URL line, HTTP error, timeout) resolves
  * to `null`: variant discovery must never break the plain model list.
  */
@@ -173,19 +266,29 @@ async function fetchOpenCodeModelInfoFromServer(
   const child = spawn(resolvedBin, ['serve', '--stdio', '--port', '0'], {
     cwd: tmpdir(),
     env: { ...env, OPENCODE_PASSWORD: password },
-    stdio: ['ignore', 'pipe', 'ignore'],
+    // stdin must be a pipe that stays open, never written or ended: the
+    // v2 stdio server treats stdin EOF as shutdown and exits (code 0)
+    // immediately after printing its URL line, so an 'ignore'd stdin
+    // leaves every subsequent fetch facing a dead listener. The probe
+    // never speaks the stdio protocol — it only needs the HTTP listener
+    // alive until the catalog fetch lands; the finally-block kill ends
+    // the child and its stdin with it.
+    stdio: ['pipe', 'pipe', 'ignore'],
   });
   try {
+    // One shared budget for the URL wait and the fetch retries, so the
+    // probe never holds detection longer than `timeoutMs` in total.
+    const deadline = Date.now() + timeoutMs;
     const baseUrl = await new Promise<string | null>((resolve) => {
       let buffer = '';
       const timer = setTimeout(() => resolve(null), timeoutMs);
       child.stdout?.setEncoding('utf8');
       child.stdout?.on('data', (chunk: string) => {
         buffer += chunk;
-        const match = buffer.match(/https?:\/\/[^\s]+/);
-        if (match) {
+        const url = extractOpenCodeServerBaseUrl(buffer);
+        if (url) {
           clearTimeout(timer);
-          resolve(match[0].replace(/\/+$/, ''));
+          resolve(url);
         }
       });
       child.once('error', () => {
@@ -198,20 +301,7 @@ async function fetchOpenCodeModelInfoFromServer(
       });
     });
     if (!baseUrl) return null;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(`${baseUrl}/api/model`, {
-        headers: {
-          authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
-        },
-        signal: controller.signal,
-      });
-      if (!response.ok) return null;
-      return parseOpenCodeModelInfo(await response.json());
-    } finally {
-      clearTimeout(timer);
-    }
+    return await fetchOpenCodeModelInfoWithRetry({ baseUrl, password, deadline });
   } catch {
     return null;
   } finally {
