@@ -45,15 +45,15 @@ jobs:
         with:
           bun-version: 1.4.4
 
-      # Pinned opencode v2.2.5 release asset (anomalyco/opencode).
+      # Pinned opencode v2.2.6 release asset (anomalyco/opencode).
       # sha256 from the release asset digest, cross-checked against the
       # release's SHA256SUMS file (both:
-      # 09f44302c10fd036912f59c81fd1aef5df45dd06f649197f9dfc9bbe2a79614e).
-      - name: Install pinned opencode v2.2.5 binary
+      # 08bb21d6326ce740d91cce7ebe88a6536933f6e1e30353b91a06b01f25da306c).
+      - name: Install pinned opencode v2.2.6 binary
         env:
           OPENCODE_ASSET: opencode-linux-x64.tar.gz
-          OPENCODE_URL: https://github.com/anomalyco/opencode/releases/download/v2.2.5/opencode-linux-x64.tar.gz
-          OPENCODE_SHA256: 09f44302c10fd036912f59c81fd1aef5df45dd06f649197f9dfc9bbe2a79614e
+          OPENCODE_URL: https://github.com/anomalyco/opencode/releases/download/v2.2.6/opencode-linux-x64.tar.gz
+          OPENCODE_SHA256: 08bb21d6326ce740d91cce7ebe88a6536933f6e1e30353b91a06b01f25da306c
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/opencode" "$HOME/.local/bin"
